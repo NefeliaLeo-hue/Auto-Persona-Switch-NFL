@@ -2,7 +2,7 @@
     "display_name": "user人设随开场白切换 Auto Persona Switch",
     "name": "AutoPersonaSwitch",
     "version": "1.0.0",
-    "author": "YourName",
+    "author": "Nefelialeo-hueNefelialeo-hue",
     "description": "根据不同角色的不同开场白，自动切换对应的 User 人设。",
     "requirements": [],
     "main": "index.js"
