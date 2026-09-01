@@ -1,9 +1,6 @@
-import { extension_settings, getContext } from "../../../extensions.js";
-import { saveSettingsDebounced } from "../../../../script.js";
-import { eventSource, event_types } from "../../../../script.js";
-import { SlashCommandParser } from "../../../slash-commands/SlashCommandParser.js";
-// 引入 ST 内置的用户档案获取函数
-import { user_avatars } from "../../../extensions.js"; 
+import { extension_settings, getContext, user_avatars } from "../../extensions.js";
+import { saveSettingsDebounced, eventSource, event_types } from "../../script.js";
+import { SlashCommandParser } from "../../slash-commands/SlashCommandParser.js";
 
 const extensionName = "AutoPersonaSwitch";
 const extensionFolderPath = `ThirdParty/${extensionName}`;
