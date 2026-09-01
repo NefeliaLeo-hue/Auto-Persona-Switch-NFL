@@ -10,6 +10,20 @@ if (!extension_settings[extensionName]) {
 }
 let settings = extension_settings[extensionName];
 
+// --- 新增：硬核纯文本提取器，彻底粉碎所有匹配障碍 ---
+function getCoreText(text) {
+    if (!text) return "";
+    let t = text.replace(/\{\{.*?\}\}/g, ''); // 删掉所有 {{xxx}} 宏变量
+    const ctx = getContext();
+    if (ctx.name1) t = t.replace(new RegExp(ctx.name1, 'gi'), ''); // 删掉你的真名
+    if (ctx.name2) t = t.replace(new RegExp(ctx.name2, 'gi'), ''); // 删掉角色真名
+    
+    // 暴力删除所有标点、空格、特殊符号、HTML标签，只保留最纯粹的汉字和字母数字
+    t = t.replace(/<[^>]*>?/gm, ''); 
+    t = t.replace(/[^\w\u4e00-\u9fa5]/g, ''); 
+    return t.substring(0, 15); // 只取前 15 个纯字符作为“指纹”
+}
+
 function renderMappingUI() {
     const context = getContext();
     const charId = context.characterId;
@@ -64,21 +78,10 @@ function renderMappingUI() {
 async function initUI() {
     try {
         const htmlFile = await $.get(`${extensionFolderPath}/index.html`);
-        
-        // 【UI 注入位置修改】寻找原生的人设面板绑定区域
-        const nativeBindingArea = $(".persona_binding");
-        if (nativeBindingArea.length > 0) {
-            // 将我们的模块强行插入到原生锁定区域的下方，并加一条分割线
-            nativeBindingArea.after(`<div id="aps-injected-wrapper" style="margin-top:15px; border-top: 1px dashed var(--SmartThemeBorderColor); padding-top: 15px;"></div>`);
-            $("#aps-injected-wrapper").append(htmlFile);
-        } else {
-            // 兜底方案
-            $("#extensions_settings").append(htmlFile);
-        }
+        // 回退到最稳妥的扩展面板，确保你绝对能看到它
+        $("#extensions_settings").append(htmlFile);
 
-        // 顺手修一下你截图里被挤成竖排的按钮
         $("#aps-save-btn").css("white-space", "nowrap");
-
         $("#aps-save-btn").on("click", () => {
             saveSettingsDebounced();
             toastr.success("开场白人设绑定已保存！"); 
@@ -93,7 +96,7 @@ async function initUI() {
 async function onChatStarted() {
     const context = getContext();
     if (!context.chat || context.chat.length === 0) return;
-    if (context.chat.length > 1) return; 
+    if (context.chat.length > 1) return; // 确保只在聊天第一句话触发
 
     const charId = context.characterId;
     if (charId === undefined || !settings[charId]) return;
@@ -108,21 +111,14 @@ async function onChatStarted() {
         greetings.push(...currentChar.data.alternate_greetings);
     }
 
+    // 提取当前屏幕上这句话的核心指纹
+    const currentCore = getCoreText(currentGreeting);
     let targetIndex = -1;
     
-    // 【核心修复 1：宏变量解析】
+    // 用指纹去比对每一个开场白的指纹
     for (let i = 0; i < greetings.length; i++) {
-        // 预先把原始文本里的宏替换成真实上下文
-        let expectedText = greetings[i]
-            .replace(/\{\{user\}\}/gi, context.name1)
-            .replace(/\{\{char\}\}/gi, context.name2)
-            .trim();
-        
-        // 取前 30 个字符进行匹配，防止后缀乱码导致匹配失败
-        const previewLength = Math.min(30, expectedText.length);
-        const expectedPreview = expectedText.substring(0, previewLength);
-        
-        if (currentGreeting.trim().includes(expectedPreview)) {
+        const expectCore = getCoreText(greetings[i]);
+        if (currentCore !== "" && expectCore !== "" && currentCore === expectCore) {
             targetIndex = i;
             break;
         }
@@ -131,12 +127,14 @@ async function onChatStarted() {
     if (targetIndex !== -1 && settings[charId][targetIndex]) {
         const targetPersona = settings[charId][targetIndex];
         
-        // 【核心修复 2：延迟执行，反杀原生系统】
+        // 弹出蓝色提示：告诉你匹配成功了，正在等原生系统的霸权结束
+        toastr.info(`[自动切卡] 检测到开场白 ${targetIndex + 1}，准备切换至: ${targetPersona}`);
+        
+        // 延迟 1 秒后反杀，并弹出绿色成功提示
         setTimeout(async () => {
-            console.log(`[${extensionName}] 触发开场白绑定，强行切换至: ${targetPersona}`);
             await SlashCommandParser.executeSlash(`/persona "${targetPersona}"`);
-            toastr.success(`已根据开场白自动切换至人设: ${targetPersona}`);
-        }, 800); 
+            toastr.success(`✅ 已强制切换人设至: ${targetPersona}`);
+        }, 1000); 
     }
 }
 
