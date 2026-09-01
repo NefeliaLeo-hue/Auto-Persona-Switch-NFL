@@ -6,6 +6,7 @@
     "description": "根据不同角色的不同开场白，自动切换对应的 User 人设。",
     "requires": [],
     "optional": [],
+    "homePage": "",
     "js": "index.js",
     "loading_order": 100
 }
