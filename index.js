@@ -1,16 +1,19 @@
-import { extension_settings, getContext } from "../../../../extensions.js";
-import { saveSettingsDebounced, eventSource, event_types } from "../../../../script.js";
-import { SlashCommandParser } from "../../../../slash-commands/SlashCommandParser.js";
+// 1. 调用 ST 官方公共 API 接口 (使用绝对路径)
+import { getContext, extension_settings } from '/scripts/extensions.js';
+import { saveSettingsDebounced, eventSource, event_types } from '/script.js';
+import { SlashCommandParser } from '/scripts/slash-commands/SlashCommandParser.js';
 
-const extensionName = "AutoPersonaSwitch"; // 这里必须和你的插件文件夹名一致
-const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`; // 修正了 HTML 的正确读取路径
+// 2. 匹配仓库
+const extensionName = "Auto-Persona-Switch-NFL"; 
+const extensionFolderPath = `/scripts/extensions/third-party/${extensionName}`;
 
+// 3. 我们原创的设置档初始化逻辑
 if (!extension_settings[extensionName]) {
     extension_settings[extensionName] = {};
 }
 let settings = extension_settings[extensionName];
 
-// 渲染 UI 界面
+// 4.  UI 渲染函数
 function renderMappingUI() {
     const context = getContext();
     const charId = context.characterId;
@@ -25,7 +28,7 @@ function renderMappingUI() {
     const currentChar = context.characters[charId];
     if (!currentChar) return;
 
-    // 获取开场白
+    // 抓取角色的开场白
     const greetings = [];
     if (currentChar.first_mes) greetings.push(currentChar.first_mes);
     if (currentChar.data && currentChar.data.alternate_greetings) {
@@ -39,13 +42,12 @@ function renderMappingUI() {
 
     if (!settings[charId]) settings[charId] = {};
 
-    // 生成输入框 UI
+    // 动态生成精简版输入框 UI
     greetings.forEach((greetingText, index) => {
         const preview = greetingText.replace(/\n/g, " ").substring(0, 20) + "...";
         const row = $(`<div class="aps-mapping-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;"></div>`);
         const label = $(`<span style="flex: 1; font-size: 0.9em; color: var(--SmartThemeBodyColor);">开场白 ${index + 1}: ${preview}</span>`);
         
-        // 改为文本输入框，100% 杜绝抓取列表报错
         const savedValue = settings[charId][index] || "";
         const input = $(`<input type="text" class="text_pole" data-index="${index}" style="flex: 1;" placeholder="填入人设名(留空不切)" value="${savedValue}">`);
         
@@ -65,20 +67,25 @@ function renderMappingUI() {
     });
 }
 
-// 初始化
+// 5. 初始化加载
 async function initUI() {
-    const htmlFile = await $.get(`${extensionFolderPath}/index.html`);
-    $("#extensions_settings").append(htmlFile);
+    try {
+        // 读取我们自己的 HTML 文件
+        const htmlFile = await $.get(`${extensionFolderPath}/index.html`);
+        $("#extensions_settings").append(htmlFile);
 
-    $("#aps-save-btn").on("click", () => {
-        saveSettingsDebounced();
-        toastr.success("自动切卡设置已保存！"); 
-    });
+        $("#aps-save-btn").on("click", () => {
+            saveSettingsDebounced();
+            toastr.success("自动切卡设置已保存！"); 
+        });
 
-    renderMappingUI();
+        renderMappingUI();
+    } catch (error) {
+        console.error(`[${extensionName}] HTML 加载失败，检查路径:`, error);
+    }
 }
 
-// 核心触发逻辑
+// 6. 核心触发逻辑
 async function onChatStarted() {
     const context = getContext();
     if (!context.chat || context.chat.length === 0) return;
@@ -105,16 +112,15 @@ async function onChatStarted() {
         }
     }
 
-    // 触发切换
     if (targetIndex !== -1 && settings[charId][targetIndex]) {
         const targetPersona = settings[charId][targetIndex];
-        console.log(`[AutoPersonaSwitch] 准备切换至: ${targetPersona}`);
+        console.log(`[${extensionName}] 准备切换至: ${targetPersona}`);
         await SlashCommandParser.executeSlash(`/persona "${targetPersona}"`);
         toastr.success(`已自动切换至人设: ${targetPersona}`);
     }
 }
 
-// 挂载
+// 7. 挂载事件监听
 jQuery(async () => {
     try {
         await initUI();
@@ -126,6 +132,6 @@ jQuery(async () => {
             if (index === 0) onChatStarted();
         });
     } catch (error) {
-        console.error("[AutoPersonaSwitch] 致命错误:", error);
+        console.error(`[${extensionName}] 致命错误:`, error);
     }
 });
