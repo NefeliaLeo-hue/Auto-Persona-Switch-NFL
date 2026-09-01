@@ -1,19 +1,15 @@
-// 1. 调用 ST 官方公共 API 接口 (使用绝对路径)
 import { getContext, extension_settings } from '/scripts/extensions.js';
 import { saveSettingsDebounced, eventSource, event_types } from '/script.js';
 import { SlashCommandParser } from '/scripts/slash-commands/SlashCommandParser.js';
 
-// 2. 匹配仓库
 const extensionName = "Auto-Persona-Switch-NFL"; 
 const extensionFolderPath = `/scripts/extensions/third-party/${extensionName}`;
 
-// 3. 我们原创的设置档初始化逻辑
 if (!extension_settings[extensionName]) {
     extension_settings[extensionName] = {};
 }
 let settings = extension_settings[extensionName];
 
-// 4.  UI 渲染函数
 function renderMappingUI() {
     const context = getContext();
     const charId = context.characterId;
@@ -28,7 +24,6 @@ function renderMappingUI() {
     const currentChar = context.characters[charId];
     if (!currentChar) return;
 
-    // 抓取角色的开场白
     const greetings = [];
     if (currentChar.first_mes) greetings.push(currentChar.first_mes);
     if (currentChar.data && currentChar.data.alternate_greetings) {
@@ -42,7 +37,6 @@ function renderMappingUI() {
 
     if (!settings[charId]) settings[charId] = {};
 
-    // 动态生成精简版输入框 UI
     greetings.forEach((greetingText, index) => {
         const preview = greetingText.replace(/\n/g, " ").substring(0, 20) + "...";
         const row = $(`<div class="aps-mapping-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;"></div>`);
@@ -67,10 +61,8 @@ function renderMappingUI() {
     });
 }
 
-// 5. 初始化加载
 async function initUI() {
     try {
-        // 读取我们自己的 HTML 文件
         const htmlFile = await $.get(`${extensionFolderPath}/index.html`);
         $("#extensions_settings").append(htmlFile);
 
@@ -81,15 +73,14 @@ async function initUI() {
 
         renderMappingUI();
     } catch (error) {
-        console.error(`[${extensionName}] HTML 加载失败，检查路径:`, error);
+        console.error(`[${extensionName}] HTML 加载失败:`, error);
     }
 }
 
-// 6. 核心触发逻辑
 async function onChatStarted() {
     const context = getContext();
     if (!context.chat || context.chat.length === 0) return;
-    if (context.chat.length > 1) return; 
+    if (context.chat.length > 1) return; // 确保只在聊天第一句话时触发
 
     const charId = context.characterId;
     if (charId === undefined || !settings[charId]) return;
@@ -105,8 +96,25 @@ async function onChatStarted() {
     }
 
     let targetIndex = -1;
+    
+    // 终极模糊匹配：按宏变量（如 {{user}}）切分文本，逐段比对，完美绕过替换后的名字差异
     for (let i = 0; i < greetings.length; i++) {
-        if (greetings[i].trim() === currentGreeting.trim()) {
+        const parts = greetings[i].split(/\{\{.*?\}\}/);
+        let match = true;
+        let searchPos = 0;
+        
+        for (const part of parts) {
+            const p = part.trim();
+            if (!p) continue;
+            const foundIdx = currentGreeting.indexOf(p, searchPos);
+            if (foundIdx === -1) {
+                match = false;
+                break;
+            }
+            searchPos = foundIdx + p.length;
+        }
+
+        if (match) {
             targetIndex = i;
             break;
         }
@@ -114,22 +122,21 @@ async function onChatStarted() {
 
     if (targetIndex !== -1 && settings[charId][targetIndex]) {
         const targetPersona = settings[charId][targetIndex];
-        console.log(`[${extensionName}] 准备切换至: ${targetPersona}`);
+        console.log(`[${extensionName}] 匹配成功，准备切换至: ${targetPersona}`);
         await SlashCommandParser.executeSlash(`/persona "${targetPersona}"`);
         toastr.success(`已自动切换至人设: ${targetPersona}`);
     }
 }
 
-// 7. 挂载事件监听
 jQuery(async () => {
     try {
         await initUI();
         eventSource.on(event_types.CHAT_CHANGED, () => {
             renderMappingUI();
-            onChatStarted();
+            onChatStarted(); // 新聊天载入时触发
         });
         eventSource.on(event_types.MESSAGE_SWIPED, (index) => {
-            if (index === 0) onChatStarted();
+            if (index === 0) onChatStarted(); // 在第一句话滑动时触发
         });
     } catch (error) {
         console.error(`[${extensionName}] 致命错误:`, error);
