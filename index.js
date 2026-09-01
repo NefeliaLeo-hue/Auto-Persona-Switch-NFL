@@ -64,11 +64,24 @@ function renderMappingUI() {
 async function initUI() {
     try {
         const htmlFile = await $.get(`${extensionFolderPath}/index.html`);
-        $("#extensions_settings").append(htmlFile);
+        
+        // 【UI 注入位置修改】寻找原生的人设面板绑定区域
+        const nativeBindingArea = $(".persona_binding");
+        if (nativeBindingArea.length > 0) {
+            // 将我们的模块强行插入到原生锁定区域的下方，并加一条分割线
+            nativeBindingArea.after(`<div id="aps-injected-wrapper" style="margin-top:15px; border-top: 1px dashed var(--SmartThemeBorderColor); padding-top: 15px;"></div>`);
+            $("#aps-injected-wrapper").append(htmlFile);
+        } else {
+            // 兜底方案
+            $("#extensions_settings").append(htmlFile);
+        }
+
+        // 顺手修一下你截图里被挤成竖排的按钮
+        $("#aps-save-btn").css("white-space", "nowrap");
 
         $("#aps-save-btn").on("click", () => {
             saveSettingsDebounced();
-            toastr.success("自动切卡设置已保存！"); 
+            toastr.success("开场白人设绑定已保存！"); 
         });
 
         renderMappingUI();
@@ -80,7 +93,7 @@ async function initUI() {
 async function onChatStarted() {
     const context = getContext();
     if (!context.chat || context.chat.length === 0) return;
-    if (context.chat.length > 1) return; // 确保只在聊天第一句话时触发
+    if (context.chat.length > 1) return; 
 
     const charId = context.characterId;
     if (charId === undefined || !settings[charId]) return;
@@ -97,24 +110,19 @@ async function onChatStarted() {
 
     let targetIndex = -1;
     
-    // 终极模糊匹配：按宏变量（如 {{user}}）切分文本，逐段比对，完美绕过替换后的名字差异
+    // 【核心修复 1：宏变量解析】
     for (let i = 0; i < greetings.length; i++) {
-        const parts = greetings[i].split(/\{\{.*?\}\}/);
-        let match = true;
-        let searchPos = 0;
+        // 预先把原始文本里的宏替换成真实上下文
+        let expectedText = greetings[i]
+            .replace(/\{\{user\}\}/gi, context.name1)
+            .replace(/\{\{char\}\}/gi, context.name2)
+            .trim();
         
-        for (const part of parts) {
-            const p = part.trim();
-            if (!p) continue;
-            const foundIdx = currentGreeting.indexOf(p, searchPos);
-            if (foundIdx === -1) {
-                match = false;
-                break;
-            }
-            searchPos = foundIdx + p.length;
-        }
-
-        if (match) {
+        // 取前 30 个字符进行匹配，防止后缀乱码导致匹配失败
+        const previewLength = Math.min(30, expectedText.length);
+        const expectedPreview = expectedText.substring(0, previewLength);
+        
+        if (currentGreeting.trim().includes(expectedPreview)) {
             targetIndex = i;
             break;
         }
@@ -122,9 +130,13 @@ async function onChatStarted() {
 
     if (targetIndex !== -1 && settings[charId][targetIndex]) {
         const targetPersona = settings[charId][targetIndex];
-        console.log(`[${extensionName}] 匹配成功，准备切换至: ${targetPersona}`);
-        await SlashCommandParser.executeSlash(`/persona "${targetPersona}"`);
-        toastr.success(`已自动切换至人设: ${targetPersona}`);
+        
+        // 【核心修复 2：延迟执行，反杀原生系统】
+        setTimeout(async () => {
+            console.log(`[${extensionName}] 触发开场白绑定，强行切换至: ${targetPersona}`);
+            await SlashCommandParser.executeSlash(`/persona "${targetPersona}"`);
+            toastr.success(`已根据开场白自动切换至人设: ${targetPersona}`);
+        }, 800); 
     }
 }
 
@@ -133,10 +145,10 @@ jQuery(async () => {
         await initUI();
         eventSource.on(event_types.CHAT_CHANGED, () => {
             renderMappingUI();
-            onChatStarted(); // 新聊天载入时触发
+            onChatStarted();
         });
         eventSource.on(event_types.MESSAGE_SWIPED, (index) => {
-            if (index === 0) onChatStarted(); // 在第一句话滑动时触发
+            if (index === 0) onChatStarted();
         });
     } catch (error) {
         console.error(`[${extensionName}] 致命错误:`, error);
