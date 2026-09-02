@@ -9,7 +9,6 @@ if (!extension_settings[extensionName]) {
 }
 let settings = extension_settings[extensionName];
 
-// 1. 纯文本提取器
 function getCoreText(text) {
     if (!text) return "";
     let t = text.replace(/\{\{.*?\}\}/g, ''); 
@@ -21,7 +20,6 @@ function getCoreText(text) {
     return t.substring(0, 15); 
 }
 
-// 2. 获取当前所在的开场白序号
 function getCurrentGreetingIndex() {
     const context = getContext();
     const charId = context ? context.characterId : undefined;
@@ -46,7 +44,7 @@ function getCurrentGreetingIndex() {
     return -1;
 }
 
-// 3. 渲染侧边栏扩展面板 (横栏)
+// 渲染侧边栏：加入防呆设计，强制使用一键绑定
 function renderMappingUI() {
     const context = getContext();
     const charId = context ? context.characterId : undefined;
@@ -81,22 +79,15 @@ function renderMappingUI() {
         const row = $(`<div class="aps-mapping-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;"></div>`);
         const label = $(`<span style="flex: 1; font-size: 0.9em; color: var(--SmartThemeBodyColor);">开场白 ${index + 1}: ${preview}</span>`);
         
-        // 兼容新老数据格式
         const savedData = settings[charId][index];
         const savedValue = typeof savedData === 'string' ? savedData : (savedData ? savedData.name : "");
 
-        const input = $(`<input type="text" class="text_pole" data-index="${index}" style="flex: 1;" placeholder="填入人设名(留空不切)" value="${savedValue}">`);
+        // 优化点：输入框改为 readonly，并在 placeholder 给出引导
+        const input = $(`<input type="text" class="text_pole" data-index="${index}" style="flex: 1; cursor: pointer;" placeholder="请在上方 User 面板一键绑定" value="${savedValue}" readonly title="请打开人设(User)面板进行一键绑定">`);
         
-        input.on("input", function() {
-            const val = $(this).val().trim();
-            const gIndex = $(this).data("index");
-            if (val) {
-                // 手打降级为普通字符串
-                settings[charId][gIndex] = val;
-            } else {
-                delete settings[charId][gIndex];
-            }
-            updateInjectedPanel(); 
+        // 点击时弹出提示，强制引导用户去使用一键绑定功能
+        input.on("click", function() {
+            toastr.info("为确保绑定精准，请打开页面上方的人设 (User) 面板，使用里面的【一键绑定】功能。");
         });
 
         row.append(label);
@@ -105,7 +96,6 @@ function renderMappingUI() {
     });
 }
 
-// 4. 更新 User 注入面板的状态
 function updateInjectedPanel() {
     if ($("#aps-injected-panel").length === 0) return; 
 
@@ -141,7 +131,6 @@ function updateInjectedPanel() {
     $("#aps-bind-btn").show();
 }
 
-// 5. 【恢复上一版绝对成功的 UI 注入逻辑】
 function injectIntoPersonaPanel() {
     if ($("#aps-injected-panel").length > 0) return; 
     
@@ -163,30 +152,25 @@ function injectIntoPersonaPanel() {
 
     let targetArea = null;
 
-    // 重新用回寻找“全局设置”黑盒的最稳妥方法
     personaPanel.find(".inline-drawer-toggle").each(function() {
         const text = $(this).text().trim();
         if (text.includes("全局") || text.includes("Global")) {
             targetArea = $(this).closest(".inline-drawer");
-            return false; // 找到就退出循环
+            return false; 
         }
     });
 
     if (targetArea && targetArea.length > 0) {
-        // 如果找到了，稳稳地插在“全局设置”的头顶！
         targetArea.before(injectedHtml);
     } else {
-        // 终极兜底：强行塞在最底下
         personaPanel.append(injectedHtml);
     }
 
-    // 绑定事件：精准抓取底层 ID
     $("#aps-bind-btn").off("click").on("click", () => {
         const context = getContext();
         const charId = context ? context.characterId : undefined;
         const gIndex = getCurrentGreetingIndex();
         
-        // 抓取唯一ID
         const personaSelect = $("#PersonaManagement select").first();
         let uniqueId = personaSelect.val();
         let displayName = personaSelect.find("option:selected").text() || (context ? context.name1 : "未命名");
@@ -199,7 +183,6 @@ function injectIntoPersonaPanel() {
         if (charId !== undefined && gIndex !== -1 && uniqueId) {
             if (!settings[charId]) settings[charId] = {};
             
-            // 存入对象实现精准隔离
             settings[charId][gIndex] = {
                 id: uniqueId,
                 name: displayName
@@ -229,7 +212,6 @@ function injectIntoPersonaPanel() {
     updateInjectedPanel();
 }
 
-// 6. 初始化扩展横栏
 async function initUI() {
     try {
         const htmlFile = await $.get(`${extensionFolderPath}/index.html`);
@@ -254,7 +236,6 @@ async function initUI() {
     }
 }
 
-// 7. 核心切卡逻辑
 async function onChatStarted() {
     const context = getContext();
     if (!context.chat || context.chat.length === 0 || context.chat.length > 1) return; 
@@ -287,14 +268,12 @@ async function onChatStarted() {
     }
 }
 
-// 8. 启动器与雷达
 jQuery(async () => {
     try {
         await initUI();
         
-        // 恢复上一版绝对成功的触发器
         setInterval(() => {
-            if ($("#PersonaManagement").is(":visible")) {
+            if ($("#switch_persona_notify").length > 0 && $("#aps-injected-panel").length === 0) {
                 injectIntoPersonaPanel();
             }
         }, 500);
