@@ -81,7 +81,7 @@ function renderMappingUI() {
         const row = $(`<div class="aps-mapping-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;"></div>`);
         const label = $(`<span style="flex: 1; font-size: 0.9em; color: var(--SmartThemeBodyColor);">开场白 ${index + 1}: ${preview}</span>`);
         
-        // 兼容处理：老版本存的是字符串，新版本(ID隔离)存的是对象
+        // 兼容新老数据格式
         const savedData = settings[charId][index];
         const savedValue = typeof savedData === 'string' ? savedData : (savedData ? savedData.name : "");
 
@@ -91,7 +91,7 @@ function renderMappingUI() {
             const val = $(this).val().trim();
             const gIndex = $(this).data("index");
             if (val) {
-                // 手动打字降级为字符串匹配，因为用户不知道底层ID
+                // 手打降级为普通字符串
                 settings[charId][gIndex] = val;
             } else {
                 delete settings[charId][gIndex];
@@ -126,7 +126,6 @@ function updateInjectedPanel() {
     if (savedData) {
         const boundName = typeof savedData === 'string' ? savedData : savedData.name;
         infoStr += `已绑定人设: <b style="color:var(--SmartThemeQuoteColor);">${boundName}</b>`;
-        // 如果底层是对象，说明是高精度 ID 绑定
         if (typeof savedData === 'object') {
             infoStr += ` <span style="opacity:0.5; font-size:0.8em;">(精确绑定)</span>`;
         }
@@ -142,26 +141,12 @@ function updateInjectedPanel() {
     $("#aps-bind-btn").show();
 }
 
-// 5. 注入面板到 User 界面
+// 5. 【恢复上一版绝对成功的 UI 注入逻辑】
 function injectIntoPersonaPanel() {
     if ($("#aps-injected-panel").length > 0) return; 
-
-    let targetArea = null;
-    $("#PersonaManagement label, #PersonaManagement span, #PersonaManagement div, #PersonaManagement fieldset").each(function() {
-        if ($(this).contents().filter(function(){ return this.nodeType === 3; }).text().trim() === "全局设置") {
-            targetArea = $(this);
-            return false; 
-        }
-    });
-
-    if (!targetArea || targetArea.length === 0) {
-        const notifyCheckbox = $("input#switch_persona_notify");
-        if (notifyCheckbox.length > 0) {
-            targetArea = notifyCheckbox.closest('.checkbox_label');
-        }
-    }
-
-    if (!targetArea || targetArea.length === 0) return; 
+    
+    const personaPanel = $("#PersonaManagement");
+    if (personaPanel.length === 0 || !personaPanel.is(":visible")) return;
 
     const injectedHtml = `
     <div id="aps-injected-panel" style="margin: 15px 0; padding: 12px; border: 1px dashed var(--SmartThemeQuoteColor); border-radius: 8px; background: rgba(0,0,0,0.1);">
@@ -176,20 +161,36 @@ function injectIntoPersonaPanel() {
     </div>
     `;
 
-    targetArea.before(injectedHtml);
+    let targetArea = null;
 
-    // 【核心黑科技】：一键绑定时，悄悄抓取底层文件 ID
-    $("#aps-bind-btn").on("click", () => {
+    // 重新用回寻找“全局设置”黑盒的最稳妥方法
+    personaPanel.find(".inline-drawer-toggle").each(function() {
+        const text = $(this).text().trim();
+        if (text.includes("全局") || text.includes("Global")) {
+            targetArea = $(this).closest(".inline-drawer");
+            return false; // 找到就退出循环
+        }
+    });
+
+    if (targetArea && targetArea.length > 0) {
+        // 如果找到了，稳稳地插在“全局设置”的头顶！
+        targetArea.before(injectedHtml);
+    } else {
+        // 终极兜底：强行塞在最底下
+        personaPanel.append(injectedHtml);
+    }
+
+    // 绑定事件：精准抓取底层 ID
+    $("#aps-bind-btn").off("click").on("click", () => {
         const context = getContext();
         const charId = context ? context.characterId : undefined;
         const gIndex = getCurrentGreetingIndex();
         
-        // 从原生的人设下拉菜单中，获取该人设真正的、独一无二的文件名/ID
+        // 抓取唯一ID
         const personaSelect = $("#PersonaManagement select").first();
         let uniqueId = personaSelect.val();
         let displayName = personaSelect.find("option:selected").text() || (context ? context.name1 : "未命名");
 
-        // 极端防呆：如果下拉菜单没抓到，回退到普通名字绑定
         if (!uniqueId) {
             uniqueId = context ? context.name1 : undefined;
             displayName = uniqueId;
@@ -198,7 +199,7 @@ function injectIntoPersonaPanel() {
         if (charId !== undefined && gIndex !== -1 && uniqueId) {
             if (!settings[charId]) settings[charId] = {};
             
-            // 把唯一ID和显示名字一起打包存起来！
+            // 存入对象实现精准隔离
             settings[charId][gIndex] = {
                 id: uniqueId,
                 name: displayName
@@ -211,7 +212,7 @@ function injectIntoPersonaPanel() {
         }
     });
 
-    $("#aps-unbind-btn").on("click", () => {
+    $("#aps-unbind-btn").off("click").on("click", () => {
         const context = getContext();
         const charId = context ? context.characterId : undefined;
         const gIndex = getCurrentGreetingIndex();
@@ -232,18 +233,22 @@ function injectIntoPersonaPanel() {
 async function initUI() {
     try {
         const htmlFile = await $.get(`${extensionFolderPath}/index.html`);
+        
         const checkExtPanel = setInterval(() => {
             if ($("#extensions_settings").length > 0 && $("#aps-extension-settings").length === 0) {
                 $("#extensions_settings").append(htmlFile);
+                
                 $("#aps-save-btn").css("white-space", "nowrap");
                 $("#aps-save-btn").on("click", () => {
                     saveSettingsDebounced();
                     toastr.success("设置已保存！"); 
                 });
+
                 renderMappingUI();
                 clearInterval(checkExtPanel); 
             }
         }, 500);
+
     } catch (error) {
         console.error(`[${extensionName}] HTML 加载失败:`, error);
     }
@@ -259,8 +264,6 @@ async function onChatStarted() {
 
     if (charId !== undefined && gIndex !== -1 && settings[charId] && settings[charId][gIndex]) {
         const savedData = settings[charId][gIndex];
-        
-        // 智能解析：如果是老版本的字符串就用字符串，是新版本的对象就提取精确的 ID
         const targetId = typeof savedData === 'string' ? savedData : savedData.id;
         const targetName = typeof savedData === 'string' ? savedData : savedData.name;
         
@@ -271,7 +274,6 @@ async function onChatStarted() {
                 const slashModule = await import('/scripts/slash-commands.js');
                 const executeSlash = slashModule.executeSlashCommandsWithOptions || slashModule.executeSlashCommands;
                 if (executeSlash) {
-                    // 把独一无二的底层 ID 交给系统，系统绝对不会认错！
                     await executeSlash(`/persona "${targetId}"`);
                     toastr.success(`✅ 已强制精确切换至人设: ${targetName}`);
                     updateInjectedPanel();
@@ -290,8 +292,9 @@ jQuery(async () => {
     try {
         await initUI();
         
+        // 恢复上一版绝对成功的触发器
         setInterval(() => {
-            if ($("#switch_persona_notify").length > 0 && $("#aps-injected-panel").length === 0) {
+            if ($("#PersonaManagement").is(":visible")) {
                 injectIntoPersonaPanel();
             }
         }, 500);
