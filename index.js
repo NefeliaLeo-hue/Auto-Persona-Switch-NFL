@@ -14,8 +14,8 @@ function getCoreText(text) {
     if (!text) return "";
     let t = text.replace(/\{\{.*?\}\}/g, ''); 
     const ctx = getContext();
-    if (ctx.name1) t = t.replace(new RegExp(ctx.name1, 'gi'), ''); 
-    if (ctx.name2) t = t.replace(new RegExp(ctx.name2, 'gi'), ''); 
+    if (ctx && ctx.name1) t = t.replace(new RegExp(ctx.name1, 'gi'), ''); 
+    if (ctx && ctx.name2) t = t.replace(new RegExp(ctx.name2, 'gi'), ''); 
     t = t.replace(/<[^>]*>?/gm, ''); 
     t = t.replace(/[^\w\u4e00-\u9fa5]/g, ''); 
     return t.substring(0, 15); 
@@ -24,7 +24,7 @@ function getCoreText(text) {
 // 2. 获取当前所在的开场白序号
 function getCurrentGreetingIndex() {
     const context = getContext();
-    const charId = context.characterId;
+    const charId = context ? context.characterId : undefined;
     if (charId === undefined || !context.chat || context.chat.length === 0) return -1;
 
     const currentChar = context.characters[charId];
@@ -46,11 +46,13 @@ function getCurrentGreetingIndex() {
     return -1;
 }
 
-// 3. 渲染侧边栏扩展面板
+// 3. 渲染侧边栏扩展面板 (横栏)
 function renderMappingUI() {
     const context = getContext();
-    const charId = context.characterId;
+    const charId = context ? context.characterId : undefined;
     const container = $("#aps-mapping-container");
+    if (container.length === 0) return; // 容错：如果横栏HTML还没加载完就跳过
+
     container.empty();
 
     if (charId === undefined) {
@@ -68,7 +70,7 @@ function renderMappingUI() {
     }
 
     if (greetings.length === 0) {
-         container.append("<p>该角色没有开场白。</p>");
+         container.append("<p style='opacity: 0.6;'>该角色没有开场白。</p>");
          return;
     }
 
@@ -79,7 +81,6 @@ function renderMappingUI() {
         const row = $(`<div class="aps-mapping-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;"></div>`);
         const label = $(`<span style="flex: 1; font-size: 0.9em; color: var(--SmartThemeBodyColor);">开场白 ${index + 1}: ${preview}</span>`);
         
-        // 恢复成最安全的文本输入框
         const savedValue = settings[charId][index] || "";
         const input = $(`<input type="text" class="text_pole" data-index="${index}" style="flex: 1;" placeholder="填入人设名(留空不切)" value="${savedValue}">`);
         
@@ -91,8 +92,8 @@ function renderMappingUI() {
             } else {
                 delete settings[charId][gIndex];
             }
-            // 同步刷新 User 注入面板
-            updateInjectedPanel();
+            // 在横栏打字，User 面板同步刷新
+            updateInjectedPanel(); 
         });
 
         row.append(label);
@@ -106,7 +107,7 @@ function updateInjectedPanel() {
     if ($("#aps-injected-panel").length === 0) return; 
 
     const context = getContext();
-    const charId = context.characterId;
+    const charId = context ? context.characterId : undefined;
     const gIndex = getCurrentGreetingIndex();
     const infoDiv = $("#aps-injected-info");
 
@@ -124,7 +125,7 @@ function updateInjectedPanel() {
         $("#aps-unbind-btn").show();
     } else {
         infoStr += `状态: <b>未绑定</b>`;
-        $("#aps-bind-btn").html(`<i class="fa-solid fa-link"></i> 绑定当前人设`);
+        $("#aps-bind-btn").html(`<i class="fa-solid fa-link"></i> 一键绑定当前人设`);
         $("#aps-unbind-btn").hide();
     }
     
@@ -132,60 +133,72 @@ function updateInjectedPanel() {
     $("#aps-bind-btn").show();
 }
 
-// 5. 注入面板到 User 界面
+// 5. 注入面板到 User 界面 (精准定位至紫色圈中间！)
 function injectIntoPersonaPanel() {
     if ($("#aps-injected-panel").length > 0) return; 
 
-    // 寻找注入点：优先找链接区域，找不到就找复选框附近
-    let targetArea = $(".persona_binding");
-    if (targetArea.length === 0) {
-        targetArea = $("input[id='switch_persona_notify']").closest('.checkbox_label').parent();
+    // 寻找精准注入点：找 "全局设置" 文本
+    let targetArea = null;
+    $("#PersonaManagement label, #PersonaManagement span, #PersonaManagement div, #PersonaManagement fieldset").each(function() {
+        if ($(this).contents().filter(function(){ return this.nodeType === 3; }).text().trim() === "全局设置") {
+            targetArea = $(this);
+            return false; // 找到了就跳出循环
+        }
+    });
+
+    // 兜底方案：如果因为语言或版本问题没找到“全局设置”这四个字，就找下面的勾选框
+    if (!targetArea || targetArea.length === 0) {
+        const notifyCheckbox = $("input#switch_persona_notify");
+        if (notifyCheckbox.length > 0) {
+            targetArea = notifyCheckbox.closest('.checkbox_label');
+        }
     }
-    if (targetArea.length === 0) return;
+
+    if (!targetArea || targetArea.length === 0) return; // 还没准备好，等下一次雷达扫描
 
     const injectedHtml = `
-    <div id="aps-injected-panel" style="margin-top: 15px; padding: 12px; border: 1px dashed var(--SmartThemeQuoteColor); border-radius: 8px; background: rgba(0,0,0,0.1);">
+    <div id="aps-injected-panel" style="margin: 15px 0; padding: 12px; border: 1px dashed var(--SmartThemeQuoteColor); border-radius: 8px; background: rgba(0,0,0,0.1);">
         <div style="font-weight: bold; margin-bottom: 8px; display: flex; align-items: center; gap: 5px; color: var(--SmartThemeQuoteColor);">
             <i class="fa-solid fa-masks-theater"></i> 开场白人设绑定 (联动)
         </div>
         <div id="aps-injected-info" style="font-size: 0.9em; margin-bottom: 10px;"></div>
         <div style="display:flex; gap: 8px;">
-            <button id="aps-bind-btn" class="menu_button" style="flex:1; white-space: nowrap;"></button>
-            <button id="aps-unbind-btn" class="menu_button danger" style="flex:1; white-space: nowrap;"><i class="fa-solid fa-unlink"></i> 解除绑定</button>
+            <button id="aps-bind-btn" class="menu_button" style="flex:1; white-space: nowrap; margin:0;"></button>
+            <button id="aps-unbind-btn" class="menu_button danger" style="flex:1; white-space: nowrap; margin:0;"><i class="fa-solid fa-unlink"></i> 解除绑定</button>
         </div>
     </div>
     `;
 
-    targetArea.after(injectedHtml);
+    // 把它插在“全局设置”的头顶上，也就是“链接”的下方！
+    targetArea.before(injectedHtml);
 
     // 绑定事件：一键读取当前激活的 User
     $("#aps-bind-btn").on("click", () => {
         const context = getContext();
-        const charId = context.characterId;
+        const charId = context ? context.characterId : undefined;
         const gIndex = getCurrentGreetingIndex();
-        const personaName = context.name1; // 直接获取当前使用的人设名
+        const personaName = context ? context.name1 : undefined; 
 
         if (charId !== undefined && gIndex !== -1 && personaName) {
             if (!settings[charId]) settings[charId] = {};
-            settings[charId][gIndex] = personaName;
+            settings[charId][gIndex] = personaName; // 直接抓取真名，不用手打了
             saveSettingsDebounced();
             toastr.success(`✅ 开场白 ${gIndex + 1} 已绑定至人设: ${personaName}`);
-            renderMappingUI();
+            renderMappingUI(); // 同步横栏
             updateInjectedPanel();
         }
     });
 
-    // 解绑事件
     $("#aps-unbind-btn").on("click", () => {
         const context = getContext();
-        const charId = context.characterId;
+        const charId = context ? context.characterId : undefined;
         const gIndex = getCurrentGreetingIndex();
         
         if (charId !== undefined && gIndex !== -1 && settings[charId]) {
             delete settings[charId][gIndex];
             saveSettingsDebounced();
             toastr.info(`已解除开场白 ${gIndex + 1} 的绑定。`);
-            renderMappingUI();
+            renderMappingUI(); // 同步横栏
             updateInjectedPanel();
         }
     });
@@ -193,53 +206,38 @@ function injectIntoPersonaPanel() {
     updateInjectedPanel();
 }
 
-// 6. 神级参考：使用 Promise 轮询确保侧边栏一定能加载出来
-function waitForElement(selector, timeout = 10000) {
-    return new Promise((resolve, reject) => {
-        const element = document.querySelector(selector);
-        if (element) return resolve(element);
-
-        const observer = new MutationObserver((mutations, obs) => {
-            const element = document.querySelector(selector);
-            if (element) {
-                obs.disconnect();
-                resolve(element);
-            }
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
-
-        setTimeout(() => {
-            observer.disconnect();
-            reject(new Error(`Timeout waiting for ${selector}`));
-        }, timeout);
-    });
-}
-
-// 7. 初始化扩展面板
+// 6. 初始化扩展面板 (无报错、高稳定雷达轮询版)
 async function initUI() {
     try {
-        const container = await waitForElement("#extensions_settings");
         const htmlFile = await $.get(`${extensionFolderPath}/index.html`);
-        $(container).append(htmlFile);
+        
+        // 每 500 毫秒扫描一次：只要横栏区存在且我们还没放进去，就安全注入
+        const checkExtPanel = setInterval(() => {
+            if ($("#extensions_settings").length > 0 && $("#aps-extension-settings").length === 0) {
+                $("#extensions_settings").append(htmlFile);
+                
+                $("#aps-save-btn").css("white-space", "nowrap");
+                $("#aps-save-btn").on("click", () => {
+                    saveSettingsDebounced();
+                    toastr.success("设置已保存！"); 
+                });
 
-        $("#aps-save-btn").css("white-space", "nowrap");
-        $("#aps-save-btn").on("click", () => {
-            saveSettingsDebounced();
-            toastr.success("设置已保存！"); 
-        });
+                renderMappingUI();
+                clearInterval(checkExtPanel); // 成功后关闭这个扫描器
+            }
+        }, 500);
 
-        renderMappingUI();
     } catch (error) {
         console.error(`[${extensionName}] HTML 加载失败:`, error);
     }
 }
 
-// 8. 核心切卡逻辑
+// 7. 核心切卡逻辑
 async function onChatStarted() {
     const context = getContext();
     if (!context.chat || context.chat.length === 0 || context.chat.length > 1) return; 
 
-    const charId = context.characterId;
+    const charId = context ? context.characterId : undefined;
     const gIndex = getCurrentGreetingIndex();
 
     if (charId !== undefined && gIndex !== -1 && settings[charId] && settings[charId][gIndex]) {
@@ -265,17 +263,17 @@ async function onChatStarted() {
     }
 }
 
+// 8. 启动器
 jQuery(async () => {
     try {
         await initUI();
         
-        // 使用高效的探头监控 User 面板的打开动作
-        const observer = new MutationObserver(() => {
-            if ($(".persona_binding").length > 0 || $("#PersonaManagement").is(":visible")) {
+        // User 面板的专属雷达：一直盯着 User 面板，只要它被点开，就执行精准注入
+        setInterval(() => {
+            if ($("#PersonaManagement").is(":visible")) {
                 injectIntoPersonaPanel();
             }
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
+        }, 500);
 
         eventSource.on(event_types.CHAT_CHANGED, () => {
             renderMappingUI();
