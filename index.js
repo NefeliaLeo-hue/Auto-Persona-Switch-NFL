@@ -9,7 +9,7 @@ if (!extension_settings[extensionName]) {
 }
 let settings = extension_settings[extensionName];
 
-// 1. 纯文本提取器：提取开场白指纹
+// 1. 纯文本提取器
 function getCoreText(text) {
     if (!text) return "";
     let t = text.replace(/\{\{.*?\}\}/g, ''); 
@@ -21,7 +21,7 @@ function getCoreText(text) {
     return t.substring(0, 15); 
 }
 
-// 2. 获取当前所在的开场白序号
+// 2. 获取当前开场白序号
 function getCurrentGreetingIndex() {
     const context = getContext();
     const charId = context ? context.characterId : undefined;
@@ -46,12 +46,12 @@ function getCurrentGreetingIndex() {
     return -1;
 }
 
-// 3. 渲染侧边栏扩展面板 (横栏)
+// 3. 渲染侧边栏横栏
 function renderMappingUI() {
     const context = getContext();
     const charId = context ? context.characterId : undefined;
     const container = $("#aps-mapping-container");
-    if (container.length === 0) return; // 容错：如果横栏HTML还没加载完就跳过
+    if (container.length === 0) return; 
 
     container.empty();
 
@@ -92,7 +92,6 @@ function renderMappingUI() {
             } else {
                 delete settings[charId][gIndex];
             }
-            // 在横栏打字，User 面板同步刷新
             updateInjectedPanel(); 
         });
 
@@ -102,7 +101,7 @@ function renderMappingUI() {
     });
 }
 
-// 4. 更新 User 注入面板的状态
+// 4. 更新联动面板状态
 function updateInjectedPanel() {
     if ($("#aps-injected-panel").length === 0) return; 
 
@@ -133,29 +132,25 @@ function updateInjectedPanel() {
     $("#aps-bind-btn").show();
 }
 
-// 5. 注入面板到 User 界面 (精准定位至紫色圈中间！)
+// 5. 暴力顺藤摸瓜注入法！
 function injectIntoPersonaPanel() {
     if ($("#aps-injected-panel").length > 0) return; 
 
-    // 寻找精准注入点：找 "全局设置" 文本
-    let targetArea = null;
-    $("#PersonaManagement label, #PersonaManagement span, #PersonaManagement div, #PersonaManagement fieldset").each(function() {
-        if ($(this).contents().filter(function(){ return this.nodeType === 3; }).text().trim() === "全局设置") {
-            targetArea = $(this);
-            return false; // 找到了就跳出循环
-        }
-    });
+    // 直接寻找 "切换用户设定时显示通知" 这个独一无二的复选框
+    const notifyCheckbox = $("#switch_persona_notify");
+    if (notifyCheckbox.length === 0) return; // 还没加载出来就退回等待
 
-    // 兜底方案：如果因为语言或版本问题没找到“全局设置”这四个字，就找下面的勾选框
-    if (!targetArea || targetArea.length === 0) {
-        const notifyCheckbox = $("input#switch_persona_notify");
-        if (notifyCheckbox.length > 0) {
-            targetArea = notifyCheckbox.closest('.checkbox_label');
-        }
+    // 找到包住这个复选框的那一整行
+    let targetArea = notifyCheckbox.closest('.checkbox_label');
+    
+    // 顺着这行往上摸，如果上面是"全局设置"的标题，或者是一条横线，我们就继续往上爬，直到踩在它们头顶！
+    let prev = targetArea.prev();
+    while (prev.length > 0 && (prev.is("hr") || prev.text().includes("设置") || prev.text().includes("全局") || prev.text().includes("Settings") || prev.hasClass('inline-drawer-header'))) {
+        targetArea = prev;
+        prev = targetArea.prev();
     }
 
-    if (!targetArea || targetArea.length === 0) return; // 还没准备好，等下一次雷达扫描
-
+    // 构造我们要塞进去的面板
     const injectedHtml = `
     <div id="aps-injected-panel" style="margin: 15px 0; padding: 12px; border: 1px dashed var(--SmartThemeQuoteColor); border-radius: 8px; background: rgba(0,0,0,0.1);">
         <div style="font-weight: bold; margin-bottom: 8px; display: flex; align-items: center; gap: 5px; color: var(--SmartThemeQuoteColor);">
@@ -169,10 +164,10 @@ function injectIntoPersonaPanel() {
     </div>
     `;
 
-    // 把它插在“全局设置”的头顶上，也就是“链接”的下方！
+    // 把它狠狠地砸在“全局设置”的头顶上！
     targetArea.before(injectedHtml);
 
-    // 绑定事件：一键读取当前激活的 User
+    // 绑定事件：一键读取
     $("#aps-bind-btn").on("click", () => {
         const context = getContext();
         const charId = context ? context.characterId : undefined;
@@ -181,10 +176,10 @@ function injectIntoPersonaPanel() {
 
         if (charId !== undefined && gIndex !== -1 && personaName) {
             if (!settings[charId]) settings[charId] = {};
-            settings[charId][gIndex] = personaName; // 直接抓取真名，不用手打了
+            settings[charId][gIndex] = personaName; 
             saveSettingsDebounced();
             toastr.success(`✅ 开场白 ${gIndex + 1} 已绑定至人设: ${personaName}`);
-            renderMappingUI(); // 同步横栏
+            renderMappingUI(); 
             updateInjectedPanel();
         }
     });
@@ -198,7 +193,7 @@ function injectIntoPersonaPanel() {
             delete settings[charId][gIndex];
             saveSettingsDebounced();
             toastr.info(`已解除开场白 ${gIndex + 1} 的绑定。`);
-            renderMappingUI(); // 同步横栏
+            renderMappingUI(); 
             updateInjectedPanel();
         }
     });
@@ -206,12 +201,11 @@ function injectIntoPersonaPanel() {
     updateInjectedPanel();
 }
 
-// 6. 初始化扩展面板 (无报错、高稳定雷达轮询版)
+// 6. 初始化扩展横栏
 async function initUI() {
     try {
         const htmlFile = await $.get(`${extensionFolderPath}/index.html`);
         
-        // 每 500 毫秒扫描一次：只要横栏区存在且我们还没放进去，就安全注入
         const checkExtPanel = setInterval(() => {
             if ($("#extensions_settings").length > 0 && $("#aps-extension-settings").length === 0) {
                 $("#extensions_settings").append(htmlFile);
@@ -223,7 +217,7 @@ async function initUI() {
                 });
 
                 renderMappingUI();
-                clearInterval(checkExtPanel); // 成功后关闭这个扫描器
+                clearInterval(checkExtPanel); 
             }
         }, 500);
 
@@ -263,14 +257,14 @@ async function onChatStarted() {
     }
 }
 
-// 8. 启动器
+// 8. 启动器与雷达
 jQuery(async () => {
     try {
         await initUI();
         
-        // User 面板的专属雷达：一直盯着 User 面板，只要它被点开，就执行精准注入
+        // 终极雷达：每秒扫描两次。只要发现了目标元素，且我们的面板不在，立刻插入！
         setInterval(() => {
-            if ($("#PersonaManagement").is(":visible")) {
+            if ($("#switch_persona_notify").length > 0 && $("#aps-injected-panel").length === 0) {
                 injectIntoPersonaPanel();
             }
         }, 500);
