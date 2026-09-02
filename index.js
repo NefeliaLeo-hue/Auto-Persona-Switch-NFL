@@ -21,7 +21,7 @@ function getCoreText(text) {
     return t.substring(0, 15); 
 }
 
-// 2. 获取当前开场白序号
+// 2. 获取当前所在的开场白序号
 function getCurrentGreetingIndex() {
     const context = getContext();
     const charId = context ? context.characterId : undefined;
@@ -46,7 +46,7 @@ function getCurrentGreetingIndex() {
     return -1;
 }
 
-// 3. 渲染侧边栏横栏
+// 3. 渲染侧边栏扩展面板 (横栏)
 function renderMappingUI() {
     const context = getContext();
     const charId = context ? context.characterId : undefined;
@@ -101,7 +101,7 @@ function renderMappingUI() {
     });
 }
 
-// 4. 更新联动面板状态
+// 4. 更新 User 注入面板的状态
 function updateInjectedPanel() {
     if ($("#aps-injected-panel").length === 0) return; 
 
@@ -132,25 +132,13 @@ function updateInjectedPanel() {
     $("#aps-bind-btn").show();
 }
 
-// 5. 暴力顺藤摸瓜注入法！
+// 5. 绝对可见版注入逻辑
 function injectIntoPersonaPanel() {
     if ($("#aps-injected-panel").length > 0) return; 
-
-    // 直接寻找 "切换用户设定时显示通知" 这个独一无二的复选框
-    const notifyCheckbox = $("#switch_persona_notify");
-    if (notifyCheckbox.length === 0) return; // 还没加载出来就退回等待
-
-    // 找到包住这个复选框的那一整行
-    let targetArea = notifyCheckbox.closest('.checkbox_label');
     
-    // 顺着这行往上摸，如果上面是"全局设置"的标题，或者是一条横线，我们就继续往上爬，直到踩在它们头顶！
-    let prev = targetArea.prev();
-    while (prev.length > 0 && (prev.is("hr") || prev.text().includes("设置") || prev.text().includes("全局") || prev.text().includes("Settings") || prev.hasClass('inline-drawer-header'))) {
-        targetArea = prev;
-        prev = targetArea.prev();
-    }
+    const personaPanel = $("#PersonaManagement");
+    if (personaPanel.length === 0 || !personaPanel.is(":visible")) return;
 
-    // 构造我们要塞进去的面板
     const injectedHtml = `
     <div id="aps-injected-panel" style="margin: 15px 0; padding: 12px; border: 1px dashed var(--SmartThemeQuoteColor); border-radius: 8px; background: rgba(0,0,0,0.1);">
         <div style="font-weight: bold; margin-bottom: 8px; display: flex; align-items: center; gap: 5px; color: var(--SmartThemeQuoteColor);">
@@ -164,11 +152,28 @@ function injectIntoPersonaPanel() {
     </div>
     `;
 
-    // 把它狠狠地砸在“全局设置”的头顶上！
-    targetArea.before(injectedHtml);
+    let targetArea = null;
+
+    // 方案 A：搜寻“全局设置”黑盒
+    personaPanel.find(".inline-drawer-toggle").each(function() {
+        const text = $(this).text().trim();
+        if (text.includes("全局") || text.includes("Global")) {
+            targetArea = $(this).closest(".inline-drawer");
+            return false; // 找到就退出循环
+        }
+    });
+
+    if (targetArea && targetArea.length > 0) {
+        // 如果找到了，插在“全局设置”的头顶！
+        targetArea.before(injectedHtml);
+    } else {
+        // 方案 B：终极兜底！直接强行塞在人设面板的“最最最底下”！
+        // 如果版本不同导致找不到字，至少你一定能在面板的最底部看到它！
+        personaPanel.append(injectedHtml);
+    }
 
     // 绑定事件：一键读取
-    $("#aps-bind-btn").on("click", () => {
+    $("#aps-bind-btn").off("click").on("click", () => {
         const context = getContext();
         const charId = context ? context.characterId : undefined;
         const gIndex = getCurrentGreetingIndex();
@@ -184,7 +189,7 @@ function injectIntoPersonaPanel() {
         }
     });
 
-    $("#aps-unbind-btn").on("click", () => {
+    $("#aps-unbind-btn").off("click").on("click", () => {
         const context = getContext();
         const charId = context ? context.characterId : undefined;
         const gIndex = getCurrentGreetingIndex();
@@ -262,9 +267,9 @@ jQuery(async () => {
     try {
         await initUI();
         
-        // 终极雷达：每秒扫描两次。只要发现了目标元素，且我们的面板不在，立刻插入！
         setInterval(() => {
-            if ($("#switch_persona_notify").length > 0 && $("#aps-injected-panel").length === 0) {
+            // 只要面板一打开，立刻尝试塞入
+            if ($("#PersonaManagement").is(":visible")) {
                 injectIntoPersonaPanel();
             }
         }, 500);
