@@ -44,6 +44,7 @@ function getCurrentGreetingIndex() {
     return -1;
 }
 
+// 侧边栏横栏渲染
 function renderMappingUI() {
     const context = getContext();
     const charId = context ? context.characterId : undefined;
@@ -78,13 +79,13 @@ function renderMappingUI() {
         const row = $(`<div class="aps-mapping-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;"></div>`);
         const label = $(`<span style="flex: 1; font-size: 0.9em; color: var(--SmartThemeBodyColor);">开场白 ${index + 1}: ${preview}</span>`);
         
-        const savedData = settings[charId][index];
-        const savedValue = typeof savedData === 'string' ? savedData : (savedData ? savedData.name : "");
+        // 纯文本名字读取
+        const savedValue = settings[charId][index] || "";
 
         const input = $(`<input type="text" class="text_pole" data-index="${index}" style="flex: 1; cursor: pointer;" placeholder="请在上方 User 面板一键绑定" value="${savedValue}" readonly title="请打开人设(User)面板进行一键绑定">`);
         
         input.on("click", function() {
-            toastr.info("为确保绑定精准，请打开页面上方的人设 (User) 面板，使用里面的【一键绑定】功能。");
+            toastr.info("请打开页面上方的人设 (User) 面板，使用里面的【一键绑定】功能。");
         });
 
         row.append(label);
@@ -93,6 +94,7 @@ function renderMappingUI() {
     });
 }
 
+// 更新 User 面板里的联动信息
 function updateInjectedPanel() {
     if ($("#aps-injected-panel").length === 0) return; 
 
@@ -107,15 +109,11 @@ function updateInjectedPanel() {
         return;
     }
 
-    const savedData = settings[charId] && settings[charId][gIndex];
+    const boundName = settings[charId] && settings[charId][gIndex];
     let infoStr = `当前开场白: <b>${gIndex + 1}</b><br>`;
     
-    if (savedData) {
-        const boundName = typeof savedData === 'string' ? savedData : savedData.name;
+    if (boundName) {
         infoStr += `已绑定人设: <b style="color:var(--SmartThemeQuoteColor);">${boundName}</b>`;
-        if (typeof savedData === 'object') {
-            infoStr += ` <span style="opacity:0.5; font-size:0.8em;">(精确绑定)</span>`;
-        }
         $("#aps-bind-btn").html(`<i class="fa-solid fa-rotate"></i> 更新为当前人设`);
         $("#aps-unbind-btn").show();
     } else {
@@ -128,6 +126,7 @@ function updateInjectedPanel() {
     $("#aps-bind-btn").show();
 }
 
+// 注入联动面板到 User 界面
 function injectIntoPersonaPanel() {
     if ($("#aps-injected-panel").length > 0) return; 
     
@@ -163,32 +162,27 @@ function injectIntoPersonaPanel() {
         personaPanel.append(injectedHtml);
     }
 
+    // 绑定事件：抓取 User 真正的名字！
     $("#aps-bind-btn").off("click").on("click", () => {
         const context = getContext();
         const charId = context ? context.characterId : undefined;
         const gIndex = getCurrentGreetingIndex();
         
-        const personaSelect = $("#PersonaManagement select").first();
-        let uniqueId = personaSelect.val();
-        let displayName = personaSelect.find("option:selected").text() || (context ? context.name1 : "未命名");
+        // 【核心修复】：直接读取当前激活的 User 名
+        const personaName = context ? context.name1 : undefined;
 
-        if (!uniqueId) {
-            uniqueId = context ? context.name1 : undefined;
-            displayName = uniqueId;
-        }
-
-        if (charId !== undefined && gIndex !== -1 && uniqueId) {
+        if (charId !== undefined && gIndex !== -1 && personaName) {
             if (!settings[charId]) settings[charId] = {};
             
-            settings[charId][gIndex] = {
-                id: uniqueId,
-                name: displayName
-            }; 
+            // 存入名字字符串
+            settings[charId][gIndex] = personaName; 
             
             saveSettingsDebounced();
-            toastr.success(`✅ 开场白 ${gIndex + 1} 已精准绑定至人设: ${displayName}`);
+            toastr.success(`✅ 开场白 ${gIndex + 1} 已精准绑定至人设: ${personaName}`);
             renderMappingUI(); 
             updateInjectedPanel();
+        } else {
+            toastr.warning("未获取到当前人设名称，请重试。");
         }
     });
 
@@ -233,7 +227,7 @@ async function initUI() {
     }
 }
 
-// 直接操控原生 DOM
+// 智能切卡执行
 async function onChatStarted() {
     const context = getContext();
     if (!context.chat || context.chat.length === 0 || context.chat.length > 1) return; 
@@ -242,27 +236,31 @@ async function onChatStarted() {
     const gIndex = getCurrentGreetingIndex();
 
     if (charId !== undefined && gIndex !== -1 && settings[charId] && settings[charId][gIndex]) {
-        const savedData = settings[charId][gIndex];
-        const targetId = typeof savedData === 'string' ? savedData : savedData.id;
-        const targetName = typeof savedData === 'string' ? savedData : savedData.name;
+        // 读取目标人设真名
+        const targetName = settings[charId][gIndex];
         
         toastr.info(`[自动切卡] 检测到开场白 ${gIndex + 1}，准备切换至: ${targetName}`);
         
         setTimeout(async () => {
             try {
+                // 模拟原生 DOM 触发操作
                 const personaSelect = $("#PersonaManagement select").first();
-                if (personaSelect.length > 0) {
-                    // 赋值并触发原生更改事件
-                    personaSelect.val(targetId).trigger('change');
-                    toastr.success(`✅ 已精确切换至人设: ${targetName}`);
+                // 找找下拉菜单里有没有这个名字的选项
+                const targetOption = personaSelect.find(`option`).filter(function() {
+                    return $(this).text() === targetName || $(this).val() === targetName;
+                });
+
+                if (targetOption.length > 0) {
+                    personaSelect.val(targetOption.val()).trigger('change');
+                    toastr.success(`✅ 已切换至人设: ${targetName}`);
                     updateInjectedPanel();
                 } else {
-                    // 极少数情况下的兜底方案
+                    // 兜底方案
                     const slashModule = await import('/scripts/slash-commands.js');
                     const executeSlash = slashModule.executeSlashCommandsWithOptions || slashModule.executeSlashCommands;
                     if (executeSlash) {
-                        await executeSlash(`/persona "${targetId}"`);
-                        toastr.success(`✅ 已精确切换至人设: ${targetName}`);
+                        await executeSlash(`/persona "${targetName}"`);
+                        toastr.success(`✅ 已切换至人设: ${targetName}`);
                         updateInjectedPanel();
                     }
                 }
