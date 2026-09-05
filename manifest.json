@@ -1,6 +1,6 @@
 {
     "display_name": "Auto Persona Switch（user与char开场白绑定）",
-    "name": "AutoPersonaSwitch",
+    "name": "Auto-Persona-Switch-NFL",
     "version": "1.0.0",
     "author": "Nefelia-hue",
     "description": "根据不同角色的不同开场白，自动切换对应的 User 人设。",
