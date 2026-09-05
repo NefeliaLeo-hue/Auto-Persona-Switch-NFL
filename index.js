@@ -1,151 +1,275 @@
 import { getContext, extension_settings } from '/scripts/extensions.js';
 import { saveSettingsDebounced, eventSource, event_types } from '/script.js';
 
-const extName = "Auto-Persona-Switch-NFL";
-if (!extension_settings[extName]) extension_settings[extName] = {};
-const settings = extension_settings[extName];
+const extensionName = "Auto-Persona-Switch-NFL"; 
+const extensionFolderPath = `/scripts/extensions/third-party/${extensionName}`;
 
-// 自动清理之前遗留的 [object Object] 垃圾数据
-const getName = (data) => typeof data === 'object' && data !== null ? (data.name || "") : (data || "");
+if (!extension_settings[extensionName]) {
+    extension_settings[extensionName] = {};
+}
+let settings = extension_settings[extensionName];
 
-const getGreetIdx = () => {
+function getCoreText(text) {
+    if (!text) return "";
+    let t = text.replace(/\{\{.*?\}\}/g, ''); 
     const ctx = getContext();
-    if (!ctx?.chat?.length || ctx.characterId === undefined) return -1;
-    const char = ctx.characters[ctx.characterId];
-    if (!char) return -1;
-    const norm = t => (t||'').replace(/\{\{.*?\}\}/g, '').replace(/<[^>]*>?/gm, '').replace(/[^\w\u4e00-\u9fa5]/g, '').substring(0, 15);
-    const cur = norm(ctx.chat[0].mes);
-    return [char.first_mes, ...(char.data?.alternate_greetings || [])].findIndex(g => norm(g) === cur);
-};
+    if (ctx && ctx.name1) t = t.replace(new RegExp(ctx.name1, 'gi'), ''); 
+    if (ctx && ctx.name2) t = t.replace(new RegExp(ctx.name2, 'gi'), ''); 
+    t = t.replace(/<[^>]*>?/gm, ''); 
+    t = t.replace(/[^\w\u4e00-\u9fa5]/g, ''); 
+    return t.substring(0, 15); 
+}
 
-// 统一刷新 UI，保持横栏和底栏同步
-const updateUI = () => {
-    const ctx = getContext();
-    const charId = ctx?.characterId;
-    const sideContainer = $("#aps-mapping-container");
-    const botPanel = $("#aps-injected-panel");
+function getCurrentGreetingIndex() {
+    const context = getContext();
+    const charId = context ? context.characterId : undefined;
+    if (charId === undefined || !context.chat || context.chat.length === 0) return -1;
 
-    if (sideContainer.length) {
-        sideContainer.empty();
-        if (charId === undefined) {
-            sideContainer.append("<p style='opacity:0.6;'>请选中角色卡。</p>");
-        } else {
-            if (!settings[charId]) settings[charId] = {};
-            const char = ctx.characters[charId];
-            const greets = [char.first_mes, ...(char.data?.alternate_greetings || [])];
-            
-            greets.forEach((g, i) => {
-                const val = getName(settings[charId][i]);
-                settings[charId][i] = val; // 强制洗白数据并保存纯文本
-                sideContainer.append(`
-                    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
-                        <span style="flex:1; font-size:0.9em; color:var(--SmartThemeBodyColor);">开场白 ${i+1}: ${g.replace(/\n/g, "").substring(0,15)}...</span>
-                        <input type="text" class="text_pole" style="flex:1; cursor:not-allowed;" value="${val}" placeholder="请在 User 面板一键绑定" readonly>
-                    </div>
-                `);
-            });
-        }
+    const currentChar = context.characters[charId];
+    if (!currentChar) return -1;
+
+    const greetings = [];
+    if (currentChar.first_mes) greetings.push(currentChar.first_mes);
+    if (currentChar.data && currentChar.data.alternate_greetings) {
+        greetings.push(...currentChar.data.alternate_greetings);
     }
 
-    if (botPanel.length) {
-        const gIdx = getGreetIdx();
-        if (charId === undefined || gIdx === -1) {
-            $("#aps-injected-info").html(`<span style="opacity:0.6;">请进入聊天查看当前开场白</span>`);
-            $("#aps-bind-btn, #aps-unbind-btn").hide();
-        } else {
-            const val = getName(settings[charId][gIdx]);
-            if (val) {
-                $("#aps-injected-info").html(`当前开场白: <b>${gIdx+1}</b><br>已绑定人设: <b style="color:var(--SmartThemeQuoteColor);">${val}</b>`);
-                $("#aps-bind-btn").html(`<i class="fa-solid fa-rotate"></i> 更新为当前人设`).show();
-                $("#aps-unbind-btn").show();
-            } else {
-                $("#aps-injected-info").html(`当前开场白: <b>${gIdx+1}</b><br>状态: <b>未绑定</b>`);
-                $("#aps-bind-btn").html(`<i class="fa-solid fa-link"></i> 一键绑定当前人设`).show();
-                $("#aps-unbind-btn").hide();
-            }
+    const currentCore = getCoreText(context.chat[0].mes);
+    for (let i = 0; i < greetings.length; i++) {
+        const expectCore = getCoreText(greetings[i]);
+        if (currentCore !== "" && expectCore !== "" && currentCore === expectCore) {
+            return i;
         }
     }
-};
+    return -1;
+}
 
-// 注入面板到底栏
-const injectBottom = () => {
-    if ($("#aps-injected-panel").length) return;
-    const pm = $("#PersonaManagement");
-    if (!pm.is(":visible")) return;
+function renderMappingUI() {
+    const context = getContext();
+    const charId = context ? context.characterId : undefined;
+    const container = $("#aps-mapping-container");
+    if (container.length === 0) return; 
 
-    const target = pm.find(".inline-drawer-toggle:contains('全局'), .inline-drawer-toggle:contains('Global')").closest(".inline-drawer");
-    const html = `
+    container.empty();
+
+    if (charId === undefined) {
+        container.append("<p style='opacity: 0.6;'>请先在主界面选中一张角色卡。</p>");
+        return;
+    }
+
+    const currentChar = context.characters[charId];
+    if (!currentChar) return;
+
+    const greetings = [];
+    if (currentChar.first_mes) greetings.push(currentChar.first_mes);
+    if (currentChar.data && currentChar.data.alternate_greetings) {
+        greetings.push(...currentChar.data.alternate_greetings);
+    }
+
+    if (greetings.length === 0) {
+         container.append("<p style='opacity: 0.6;'>该角色没有开场白。</p>");
+         return;
+    }
+
+    if (!settings[charId]) settings[charId] = {};
+
+    greetings.forEach((greetingText, index) => {
+        const preview = greetingText.replace(/\n/g, " ").substring(0, 20) + "...";
+        const row = $(`<div class="aps-mapping-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;"></div>`);
+        const label = $(`<span style="flex: 1; font-size: 0.9em; color: var(--SmartThemeBodyColor);">开场白 ${index + 1}: ${preview}</span>`);
+        
+        const savedValue = settings[charId][index] || "";
+        const input = $(`<input type="text" class="text_pole" data-index="${index}" style="flex: 1; cursor: pointer;" placeholder="请在上方 User 面板一键绑定" value="${savedValue}" readonly title="请打开人设(User)面板进行一键绑定">`);
+        
+        input.on("click", function() {
+            toastr.info("为确保绑定精准，请打开页面上方的人设 (User) 面板，使用里面的【一键绑定】功能。");
+        });
+
+        row.append(label);
+        row.append(input);
+        container.append(row);
+    });
+}
+
+function updateInjectedPanel() {
+    if ($("#aps-injected-panel").length === 0) return; 
+
+    const context = getContext();
+    const charId = context ? context.characterId : undefined;
+    const gIndex = getCurrentGreetingIndex();
+    const infoDiv = $("#aps-injected-info");
+
+    if (charId === undefined || gIndex === -1) {
+        infoDiv.html(`<span style="opacity:0.6;">请进入聊天查看当前开场白</span>`);
+        $("#aps-bind-btn, #aps-unbind-btn").hide();
+        return;
+    }
+
+    const boundName = settings[charId] && settings[charId][gIndex];
+    let infoStr = `当前开场白: <b>${gIndex + 1}</b><br>`;
+    
+    if (boundName) {
+        infoStr += `已绑定人设: <b style="color:var(--SmartThemeQuoteColor);">${boundName}</b>`;
+        $("#aps-bind-btn").html(`<i class="fa-solid fa-rotate"></i> 更新为当前人设`);
+        $("#aps-unbind-btn").show();
+    } else {
+        infoStr += `状态: <b>未绑定</b>`;
+        $("#aps-bind-btn").html(`<i class="fa-solid fa-link"></i> 一键绑定当前人设`);
+        $("#aps-unbind-btn").hide();
+    }
+    
+    infoDiv.html(infoStr);
+    $("#aps-bind-btn").show();
+}
+
+function injectIntoPersonaPanel() {
+    if ($("#aps-injected-panel").length > 0) return; 
+    
+    const personaPanel = $("#PersonaManagement");
+    if (personaPanel.length === 0 || !personaPanel.is(":visible")) return;
+
+    const injectedHtml = `
     <div id="aps-injected-panel" style="margin: 15px 0; padding: 12px; border: 1px dashed var(--SmartThemeQuoteColor); border-radius: 8px; background: rgba(0,0,0,0.1);">
-        <div style="font-weight: bold; margin-bottom: 8px; color: var(--SmartThemeQuoteColor);"><i class="fa-solid fa-masks-theater"></i> 开场白人设绑定 (联动)</div>
+        <div style="font-weight: bold; margin-bottom: 8px; display: flex; align-items: center; gap: 5px; color: var(--SmartThemeQuoteColor);">
+            <i class="fa-solid fa-masks-theater"></i> 开场白人设绑定 (联动)
+        </div>
         <div id="aps-injected-info" style="font-size: 0.9em; margin-bottom: 10px;"></div>
         <div style="display:flex; gap: 8px;">
-            <button id="aps-bind-btn" class="menu_button" style="flex:1; margin:0;"></button>
-            <button id="aps-unbind-btn" class="menu_button danger" style="flex:1; margin:0;"><i class="fa-solid fa-unlink"></i> 解除绑定</button>
+            <button id="aps-bind-btn" class="menu_button" style="flex:1; white-space: nowrap; margin:0;"></button>
+            <button id="aps-unbind-btn" class="menu_button danger" style="flex:1; white-space: nowrap; margin:0;"><i class="fa-solid fa-unlink"></i> 解除绑定</button>
         </div>
-    </div>`;
+    </div>
+    `;
 
-    if (target.length) target.before(html); else pm.append(html);
+    let targetArea = null;
 
-    $("#aps-bind-btn").on("click", () => {
-        const ctx = getContext();
-        if (ctx.characterId !== undefined && getGreetIdx() !== -1 && ctx.name1) {
-            settings[ctx.characterId][getGreetIdx()] = ctx.name1; 
-            saveSettingsDebounced();
-            toastr.success(`✅ 已绑定至人设: ${ctx.name1}`);
-            updateUI();
+    personaPanel.find(".inline-drawer-toggle").each(function() {
+        const text = $(this).text().trim();
+        if (text.includes("全局") || text.includes("Global")) {
+            targetArea = $(this).closest(".inline-drawer");
+            return false; 
         }
     });
 
-    $("#aps-unbind-btn").on("click", () => {
-        const ctx = getContext();
-        if (ctx.characterId !== undefined && getGreetIdx() !== -1 && settings[ctx.characterId]) {
-            delete settings[ctx.characterId][getGreetIdx()];
-            saveSettingsDebounced();
-            toastr.info(`已解除绑定`);
-            updateUI();
-        }
-    });
-    updateUI();
-};
-
-// 切卡执行
-const handleSwitch = async () => {
-    updateUI();
-    const ctx = getContext();
-    if (!ctx.chat || ctx.chat.length !== 1) return;
-    
-    const charId = ctx.characterId;
-    const gIdx = getGreetIdx();
-    if (charId !== undefined && gIdx !== -1 && settings[charId]) {
-        const target = getName(settings[charId][gIdx]);
-        if (target && ctx.name1 !== target) {
-            toastr.info(`[自动切卡] 准备切换至: ${target}`);
-            setTimeout(async () => {
-                const slash = await import('/scripts/slash-commands.js');
-                const exec = slash.executeSlashCommandsWithOptions || slash.executeSlashCommands;
-                if (exec) {
-                    await exec(`/persona "${target}"`);
-                    toastr.success(`✅ 已切换至人设: ${target}`);
-                    updateUI();
-                }
-            }, 1000);
-        }
+    if (targetArea && targetArea.length > 0) {
+        targetArea.before(injectedHtml);
+    } else {
+        personaPanel.append(injectedHtml);
     }
-};
+
+    $("#aps-bind-btn").off("click").on("click", () => {
+        const context = getContext();
+        const charId = context ? context.characterId : undefined;
+        const gIndex = getCurrentGreetingIndex();
+        const realUserName = context ? context.name1 : undefined; 
+
+        if (charId !== undefined && gIndex !== -1 && realUserName) {
+            if (!settings[charId]) settings[charId] = {};
+            
+            settings[charId][gIndex] = realUserName; 
+            
+            saveSettingsDebounced();
+            toastr.success(`✅ 开场白 ${gIndex + 1} 已绑定至人设: ${realUserName}`);
+            renderMappingUI(); 
+            updateInjectedPanel();
+        } else {
+            toastr.warning("未获取到当前人设名称，请重试。");
+        }
+    });
+
+    $("#aps-unbind-btn").off("click").on("click", () => {
+        const context = getContext();
+        const charId = context ? context.characterId : undefined;
+        const gIndex = getCurrentGreetingIndex();
+        
+        if (charId !== undefined && gIndex !== -1 && settings[charId]) {
+            delete settings[charId][gIndex];
+            saveSettingsDebounced();
+            toastr.info(`已解除开场白 ${gIndex + 1} 的绑定。`);
+            renderMappingUI(); 
+            updateInjectedPanel();
+        }
+    });
+
+    updateInjectedPanel();
+}
+
+async function initUI() {
+    try {
+        const htmlFile = await $.get(`${extensionFolderPath}/index.html`);
+        
+        const checkExtPanel = setInterval(() => {
+            if ($("#extensions_settings").length > 0 && $("#aps-extension-settings").length === 0) {
+                $("#extensions_settings").append(htmlFile);
+                
+                $("#aps-save-btn").css("white-space", "nowrap");
+                $("#aps-save-btn").on("click", () => {
+                    saveSettingsDebounced();
+                    toastr.success("设置已保存！"); 
+                });
+
+                renderMappingUI();
+                clearInterval(checkExtPanel); 
+            }
+        }, 500);
+
+    } catch (error) {
+        console.error(`[${extensionName}] HTML 加载失败:`, error);
+    }
+}
+
+async function onChatStarted() {
+    const context = getContext();
+    if (!context.chat || context.chat.length === 0 || context.chat.length > 1) return; 
+
+    const charId = context ? context.characterId : undefined;
+    const gIndex = getCurrentGreetingIndex();
+
+    if (charId !== undefined && gIndex !== -1 && settings[charId] && settings[charId][gIndex]) {
+        const targetName = settings[charId][gIndex];
+        
+        toastr.info(`[自动切换] 检测到开场白 ${gIndex + 1}，准备切换至: ${targetName}`);
+        
+        setTimeout(async () => {
+            try {
+                const slashModule = await import('/scripts/slash-commands.js');
+                const executeSlash = slashModule.executeSlashCommandsWithOptions || slashModule.executeSlashCommands;
+                if (executeSlash) {
+                    await executeSlash(`/persona "${targetName}"`);
+                    toastr.success(`✅ 已切换至人设: ${targetName}`);
+                    updateInjectedPanel();
+                }
+            } catch (err) {
+                console.error(`[${extensionName}] 命令执行失败:`, err);
+            }
+        }, 1000); 
+    } else {
+        updateInjectedPanel();
+    }
+}
 
 jQuery(async () => {
-    const htmlFile = await $.get(`/scripts/extensions/third-party/${extName}/index.html`);
-    const timer = setInterval(() => {
-        if ($("#extensions_settings").length && !$("#aps-extension-settings").length) {
-            $("#extensions_settings").append(htmlFile);
-            $("#aps-save-btn").on("click", () => { saveSettingsDebounced(); toastr.success("已保存！"); });
-            updateUI();
-            clearInterval(timer);
-        }
-    }, 500);
+    try {
+        await initUI();
+        
+        setInterval(() => {
+            if ($("#PersonaManagement").is(":visible")) {
+                injectIntoPersonaPanel();
+            }
+        }, 500);
 
-    setInterval(() => { if ($("#PersonaManagement").is(":visible")) injectBottom(); }, 500);
-
-    eventSource.on(event_types.CHAT_CHANGED, handleSwitch);
-    eventSource.on(event_types.MESSAGE_SWIPED, (idx) => { if (idx === 0) handleSwitch(); });
+        eventSource.on(event_types.CHAT_CHANGED, () => {
+            renderMappingUI();
+            updateInjectedPanel();
+            onChatStarted();
+        });
+        eventSource.on(event_types.MESSAGE_SWIPED, (index) => {
+            if (index === 0) {
+                onChatStarted();
+                updateInjectedPanel();
+            }
+        });
+    } catch (error) {
+        console.error(`[${extensionName}] 错误:`, error);
+    }
 });
