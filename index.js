@@ -7,133 +7,97 @@ const extensionFolderPath = `/scripts/extensions/third-party/${extensionName}`;
 if (!extension_settings[extensionName]) {
     extension_settings[extensionName] = {};
 }
-let settings = extension_settings[extensionName];
+const settings = extension_settings[extensionName];
 
-function getCoreText(text) {
-    if (!text) return "";
-    let t = text.replace(/\{\{.*?\}\}/g, ''); 
+// 1. 核心逻辑
+function getGreetingIndex() {
     const ctx = getContext();
-    if (ctx && ctx.name1) t = t.replace(new RegExp(ctx.name1, 'gi'), ''); 
-    if (ctx && ctx.name2) t = t.replace(new RegExp(ctx.name2, 'gi'), ''); 
-    t = t.replace(/<[^>]*>?/gm, ''); 
-    t = t.replace(/[^\w\u4e00-\u9fa5]/g, ''); 
-    return t.substring(0, 15); 
+    if (!ctx || !ctx.chat || ctx.chat.length === 0 || ctx.characterId === undefined) return -1;
+
+    const char = ctx.characters[ctx.characterId];
+    if (!char) return -1;
+
+    const normalize = t => (t||'').replace(/\{\{.*?\}\}/g, '').replace(/<[^>]*>?/gm, '').replace(/[^\w\u4e00-\u9fa5]/g, '').substring(0, 15);
+    const current = normalize(ctx.chat[0].mes);
+    
+    const greetings = [char.first_mes].concat(char.data?.alternate_greetings || []);
+    return greetings.findIndex(g => normalize(g) === current);
 }
 
-function getCurrentGreetingIndex() {
-    const context = getContext();
-    const charId = context ? context.characterId : undefined;
-    if (charId === undefined || !context.chat || context.chat.length === 0) return -1;
+// 2. 统一 UI 刷新枢纽！
+function updateAllUI() {
+    const ctx = getContext();
+    const charId = ctx ? ctx.characterId : undefined;
+    
+    // ======== 更新侧边栏(横栏) ========
+    const sidebarContainer = $("#aps-mapping-container");
+    if (sidebarContainer.length > 0) {
+        sidebarContainer.empty();
+        if (charId === undefined) {
+            sidebarContainer.append("<p style='opacity: 0.6;'>请先在主界面选中一张角色卡。</p>");
+        } else {
+            if (!settings[charId]) settings[charId] = {};
+            const char = ctx.characters[charId];
+            const greetings = [char.first_mes].concat(char.data?.alternate_greetings || []);
+            
+            greetings.forEach((g, index) => {
+                const preview = g.replace(/\n/g, " ").substring(0, 20) + "...";
+                let savedName = settings[charId][index] || "";
+                
+                // 修复上个版本遗留的 [object Object] 报错
+                if (typeof savedName === 'object') {
+                    savedName = savedName.name || "";
+                    settings[charId][index] = savedName; // 纠正回纯文本
+                }
 
-    const currentChar = context.characters[charId];
-    if (!currentChar) return -1;
-
-    const greetings = [];
-    if (currentChar.first_mes) greetings.push(currentChar.first_mes);
-    if (currentChar.data && currentChar.data.alternate_greetings) {
-        greetings.push(...currentChar.data.alternate_greetings);
-    }
-
-    const currentCore = getCoreText(context.chat[0].mes);
-    for (let i = 0; i < greetings.length; i++) {
-        const expectCore = getCoreText(greetings[i]);
-        if (currentCore !== "" && expectCore !== "" && currentCore === expectCore) {
-            return i;
+                sidebarContainer.append(`
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                        <span style="flex: 1; font-size: 0.9em; color: var(--SmartThemeBodyColor);">开场白 ${index + 1}: ${preview}</span>
+                        <input type="text" class="text_pole" style="flex: 1; cursor: not-allowed;" value="${savedName}" placeholder="请在 User 面板点击绑定" readonly title="为确保同步，请打开人设(User)面板使用一键绑定功能。">
+                    </div>
+                `);
+            });
         }
     }
-    return -1;
+
+    // ======== 更新人设面板(底栏) ========
+    const injectedPanel = $("#aps-injected-panel");
+    if (injectedPanel.length > 0) {
+        const gIndex = getGreetingIndex();
+        const infoDiv = $("#aps-injected-info");
+        const bindBtn = $("#aps-bind-btn");
+        const unbindBtn = $("#aps-unbind-btn");
+
+        if (charId === undefined || gIndex === -1) {
+            infoDiv.html(`<span style="opacity:0.6;">请进入聊天以查看并绑定开场白</span>`);
+            bindBtn.hide(); unbindBtn.hide();
+        } else {
+            let savedName = settings[charId][gIndex] || "";
+            if (typeof savedName === 'object') savedName = savedName.name || ""; // 清理垃圾数据
+
+            if (savedName) {
+                infoDiv.html(`当前开场白: <b>${gIndex + 1}</b><br>已绑定人设: <b style="color:var(--SmartThemeQuoteColor);">${savedName}</b>`);
+                bindBtn.html(`<i class="fa-solid fa-rotate"></i> 更新为当前人设`).show();
+                unbindBtn.show();
+            } else {
+                infoDiv.html(`当前开场白: <b>${gIndex + 1}</b><br>状态: <b>未绑定</b>`);
+                bindBtn.html(`<i class="fa-solid fa-link"></i> 一键绑定当前人设`).show();
+                unbindBtn.hide();
+            }
+        }
+    }
 }
 
-// 侧边栏横栏渲染
-function renderMappingUI() {
-    const context = getContext();
-    const charId = context ? context.characterId : undefined;
-    const container = $("#aps-mapping-container");
-    if (container.length === 0) return; 
-
-    container.empty();
-
-    if (charId === undefined) {
-        container.append("<p style='opacity: 0.6;'>请先在主界面选中一张角色卡。</p>");
-        return;
-    }
-
-    const currentChar = context.characters[charId];
-    if (!currentChar) return;
-
-    const greetings = [];
-    if (currentChar.first_mes) greetings.push(currentChar.first_mes);
-    if (currentChar.data && currentChar.data.alternate_greetings) {
-        greetings.push(...currentChar.data.alternate_greetings);
-    }
-
-    if (greetings.length === 0) {
-         container.append("<p style='opacity: 0.6;'>该角色没有开场白。</p>");
-         return;
-    }
-
-    if (!settings[charId]) settings[charId] = {};
-
-    greetings.forEach((greetingText, index) => {
-        const preview = greetingText.replace(/\n/g, " ").substring(0, 20) + "...";
-        const row = $(`<div class="aps-mapping-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;"></div>`);
-        const label = $(`<span style="flex: 1; font-size: 0.9em; color: var(--SmartThemeBodyColor);">开场白 ${index + 1}: ${preview}</span>`);
-        
-        // 纯文本名字读取
-        const savedValue = settings[charId][index] || "";
-
-        const input = $(`<input type="text" class="text_pole" data-index="${index}" style="flex: 1; cursor: pointer;" placeholder="请在上方 User 面板一键绑定" value="${savedValue}" readonly title="请打开人设(User)面板进行一键绑定">`);
-        
-        input.on("click", function() {
-            toastr.info("请打开页面上方的人设 (User) 面板，使用里面的【一键绑定】功能。");
-        });
-
-        row.append(label);
-        row.append(input);
-        container.append(row);
-    });
-}
-
-// 更新 User 面板里的联动信息
-function updateInjectedPanel() {
-    if ($("#aps-injected-panel").length === 0) return; 
-
-    const context = getContext();
-    const charId = context ? context.characterId : undefined;
-    const gIndex = getCurrentGreetingIndex();
-    const infoDiv = $("#aps-injected-info");
-
-    if (charId === undefined || gIndex === -1) {
-        infoDiv.html(`<span style="opacity:0.6;">请进入聊天查看当前开场白</span>`);
-        $("#aps-bind-btn, #aps-unbind-btn").hide();
-        return;
-    }
-
-    const boundName = settings[charId] && settings[charId][gIndex];
-    let infoStr = `当前开场白: <b>${gIndex + 1}</b><br>`;
-    
-    if (boundName) {
-        infoStr += `已绑定人设: <b style="color:var(--SmartThemeQuoteColor);">${boundName}</b>`;
-        $("#aps-bind-btn").html(`<i class="fa-solid fa-rotate"></i> 更新为当前人设`);
-        $("#aps-unbind-btn").show();
-    } else {
-        infoStr += `状态: <b>未绑定</b>`;
-        $("#aps-bind-btn").html(`<i class="fa-solid fa-link"></i> 一键绑定当前人设`);
-        $("#aps-unbind-btn").hide();
-    }
-    
-    infoDiv.html(infoStr);
-    $("#aps-bind-btn").show();
-}
-
-// 注入联动面板到 User 界面
+// 3. 将联动面板安全注入到 User 界面
 function injectIntoPersonaPanel() {
     if ($("#aps-injected-panel").length > 0) return; 
     
     const personaPanel = $("#PersonaManagement");
-    if (personaPanel.length === 0 || !personaPanel.is(":visible")) return;
+    if (!personaPanel.is(":visible")) return;
 
-    const injectedHtml = `
+    let targetArea = personaPanel.find(".inline-drawer-toggle:contains('全局'), .inline-drawer-toggle:contains('Global')").closest(".inline-drawer");
+
+    const html = `
     <div id="aps-injected-panel" style="margin: 15px 0; padding: 12px; border: 1px dashed var(--SmartThemeQuoteColor); border-radius: 8px; background: rgba(0,0,0,0.1);">
         <div style="font-weight: bold; margin-bottom: 8px; display: flex; align-items: center; gap: 5px; color: var(--SmartThemeQuoteColor);">
             <i class="fa-solid fa-masks-theater"></i> 开场白人设绑定 (联动)
@@ -146,155 +110,94 @@ function injectIntoPersonaPanel() {
     </div>
     `;
 
-    let targetArea = null;
+    if (targetArea.length > 0) targetArea.before(html);
+    else personaPanel.append(html);
 
-    personaPanel.find(".inline-drawer-toggle").each(function() {
-        const text = $(this).text().trim();
-        if (text.includes("全局") || text.includes("Global")) {
-            targetArea = $(this).closest(".inline-drawer");
-            return false; 
-        }
-    });
+    // 绑定事件：只抓取酒馆真实的当前用户名 (context.name1)
+    $("#aps-bind-btn").on("click", () => {
+        const ctx = getContext();
+        const charId = ctx.characterId;
+        const gIndex = getGreetingIndex();
+        const realUserName = ctx.name1; 
 
-    if (targetArea && targetArea.length > 0) {
-        targetArea.before(injectedHtml);
-    } else {
-        personaPanel.append(injectedHtml);
-    }
-
-    // 绑定事件：抓取 User 真正的名字！
-    $("#aps-bind-btn").off("click").on("click", () => {
-        const context = getContext();
-        const charId = context ? context.characterId : undefined;
-        const gIndex = getCurrentGreetingIndex();
-        
-        // 【核心修复】：直接读取当前激活的 User 名
-        const personaName = context ? context.name1 : undefined;
-
-        if (charId !== undefined && gIndex !== -1 && personaName) {
-            if (!settings[charId]) settings[charId] = {};
-            
-            // 存入名字字符串
-            settings[charId][gIndex] = personaName; 
-            
+        if (charId !== undefined && gIndex !== -1 && realUserName) {
+            settings[charId][gIndex] = realUserName; // 只存最干净的纯文本
             saveSettingsDebounced();
-            toastr.success(`✅ 开场白 ${gIndex + 1} 已精准绑定至人设: ${personaName}`);
-            renderMappingUI(); 
-            updateInjectedPanel();
-        } else {
-            toastr.warning("未获取到当前人设名称，请重试。");
+            toastr.success(`✅ 已绑定至人设: ${realUserName}`);
+            updateAllUI(); // 点完瞬间刷新两边，保证100%同步
         }
     });
 
-    $("#aps-unbind-btn").off("click").on("click", () => {
-        const context = getContext();
-        const charId = context ? context.characterId : undefined;
-        const gIndex = getCurrentGreetingIndex();
+    $("#aps-unbind-btn").on("click", () => {
+        const charId = getContext().characterId;
+        const gIndex = getGreetingIndex();
         
         if (charId !== undefined && gIndex !== -1 && settings[charId]) {
             delete settings[charId][gIndex];
             saveSettingsDebounced();
-            toastr.info(`已解除开场白 ${gIndex + 1} 的绑定。`);
-            renderMappingUI(); 
-            updateInjectedPanel();
+            toastr.info(`已解除绑定`);
+            updateAllUI(); // 点完瞬间刷新两边，保证100%同步
         }
     });
 
-    updateInjectedPanel();
+    updateAllUI(); // 注入完立刻同步一次
 }
 
-async function initUI() {
-    try {
-        const htmlFile = await $.get(`${extensionFolderPath}/index.html`);
-        
-        const checkExtPanel = setInterval(() => {
-            if ($("#extensions_settings").length > 0 && $("#aps-extension-settings").length === 0) {
-                $("#extensions_settings").append(htmlFile);
-                
-                $("#aps-save-btn").css("white-space", "nowrap");
-                $("#aps-save-btn").on("click", () => {
-                    saveSettingsDebounced();
-                    toastr.success("设置已保存！"); 
-                });
+// 4. 智能切卡逻辑
+async function handlePersonaSwitch() {
+    updateAllUI(); // 聊天变动时刷新所有UI
 
-                renderMappingUI();
-                clearInterval(checkExtPanel); 
-            }
-        }, 500);
+    const ctx = getContext();
+    if (!ctx.chat || ctx.chat.length === 0 || ctx.chat.length > 1) return; 
 
-    } catch (error) {
-        console.error(`[${extensionName}] HTML 加载失败:`, error);
-    }
-}
-
-// 智能切卡执行
-async function onChatStarted() {
-    const context = getContext();
-    if (!context.chat || context.chat.length === 0 || context.chat.length > 1) return; 
-
-    const charId = context ? context.characterId : undefined;
-    const gIndex = getCurrentGreetingIndex();
+    const charId = ctx.characterId;
+    const gIndex = getGreetingIndex();
 
     if (charId !== undefined && gIndex !== -1 && settings[charId] && settings[charId][gIndex]) {
-        // 读取目标人设真名
-        const targetName = settings[charId][gIndex];
-        
+        let targetName = settings[charId][gIndex];
+        if (typeof targetName === 'object') targetName = targetName.name; // 垃圾数据兼容处理
+
+        // 如果当前名字已经是目标名字，就不切了，安静地呆着
+        if (ctx.name1 === targetName) return;
+
         toastr.info(`[自动切卡] 检测到开场白 ${gIndex + 1}，准备切换至: ${targetName}`);
         
         setTimeout(async () => {
             try {
-                // 模拟原生 DOM 触发操作
-                const personaSelect = $("#PersonaManagement select").first();
-                // 找找下拉菜单里有没有这个名字的选项
-                const targetOption = personaSelect.find(`option`).filter(function() {
-                    return $(this).text() === targetName || $(this).val() === targetName;
-                });
-
-                if (targetOption.length > 0) {
-                    personaSelect.val(targetOption.val()).trigger('change');
+                const slashModule = await import('/scripts/slash-commands.js');
+                const executeSlash = slashModule.executeSlashCommandsWithOptions || slashModule.executeSlashCommands;
+                if (executeSlash) {
+                    await executeSlash(`/persona "${targetName}"`);
                     toastr.success(`✅ 已切换至人设: ${targetName}`);
-                    updateInjectedPanel();
-                } else {
-                    // 兜底方案
-                    const slashModule = await import('/scripts/slash-commands.js');
-                    const executeSlash = slashModule.executeSlashCommandsWithOptions || slashModule.executeSlashCommands;
-                    if (executeSlash) {
-                        await executeSlash(`/persona "${targetName}"`);
-                        toastr.success(`✅ 已切换至人设: ${targetName}`);
-                        updateInjectedPanel();
-                    }
+                    updateAllUI();
                 }
             } catch (err) {
-                console.error(`[${extensionName}] 命令执行失败:`, err);
+                console.error(`[${extensionName}] 切卡失败:`, err);
             }
         }, 1000); 
-    } else {
-        updateInjectedPanel();
     }
 }
 
+// 5. 初始化与雷达监控
 jQuery(async () => {
-    try {
-        await initUI();
-        
-        setInterval(() => {
-            if ($("#PersonaManagement").is(":visible")) {
-                injectIntoPersonaPanel();
-            }
-        }, 500);
+    const htmlFile = await $.get(`${extensionFolderPath}/index.html`);
+    
+    // 初始化横栏
+    const checkExtPanel = setInterval(() => {
+        if ($("#extensions_settings").length > 0 && $("#aps-extension-settings").length === 0) {
+            $("#extensions_settings").append(htmlFile);
+            $("#aps-save-btn").on("click", () => { saveSettingsDebounced(); toastr.success("设置已保存！"); });
+            updateAllUI();
+            clearInterval(checkExtPanel); 
+        }
+    }, 500);
 
-        eventSource.on(event_types.CHAT_CHANGED, () => {
-            renderMappingUI();
-            updateInjectedPanel();
-            onChatStarted();
-        });
-        eventSource.on(event_types.MESSAGE_SWIPED, (index) => {
-            if (index === 0) {
-                onChatStarted();
-                updateInjectedPanel();
-            }
-        });
-    } catch (error) {
-        console.error(`[${extensionName}] 错误:`, error);
-    }
+    // 监控 User 面板
+    setInterval(() => {
+        if ($("#PersonaManagement").is(":visible")) injectIntoPersonaPanel();
+    }, 500);
+
+    // 监听聊天变动与滑动
+    eventSource.on(event_types.CHAT_CHANGED, handlePersonaSwitch);
+    eventSource.on(event_types.MESSAGE_SWIPED, (index) => { if (index === 0) handlePersonaSwitch(); });
 });
