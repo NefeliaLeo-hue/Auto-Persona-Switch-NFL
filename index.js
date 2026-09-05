@@ -44,7 +44,6 @@ function getCurrentGreetingIndex() {
     return -1;
 }
 
-// 渲染侧边栏：加入防呆设计，强制使用一键绑定
 function renderMappingUI() {
     const context = getContext();
     const charId = context ? context.characterId : undefined;
@@ -82,12 +81,10 @@ function renderMappingUI() {
         const savedData = settings[charId][index];
         const savedValue = typeof savedData === 'string' ? savedData : (savedData ? savedData.name : "");
 
-        // 优化点：输入框改为 readonly，并在 placeholder 给出引导
         const input = $(`<input type="text" class="text_pole" data-index="${index}" style="flex: 1; cursor: pointer;" placeholder="请在上方 User 面板一键绑定" value="${savedValue}" readonly title="请打开人设(User)面板进行一键绑定">`);
         
-        // 点击时弹出提示，强制引导用户去使用一键绑定功能
         input.on("click", function() {
-            toastr.info("为确保绑定精准，请打开页面上方的人设 (User) 面板，使用里面的【一键绑定】功能。");
+            toastr.info("为确保绑定精准，请打开页面User面板，使用里面的【一键绑定】功能。");
         });
 
         row.append(label);
@@ -273,7 +270,7 @@ jQuery(async () => {
         await initUI();
         
         setInterval(() => {
-            if ($("#switch_persona_notify").length > 0 && $("#aps-injected-panel").length === 0) {
+            if ($("#PersonaManagement").is(":visible")) {
                 injectIntoPersonaPanel();
             }
         }, 500);
@@ -290,6 +287,6 @@ jQuery(async () => {
             }
         });
     } catch (error) {
-        console.error(`[${extensionName}] 致命错误:`, error);
+        console.error(`[${extensionName}] 错误:`, error);
     }
 });
