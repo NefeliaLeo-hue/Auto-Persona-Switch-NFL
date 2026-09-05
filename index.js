@@ -256,7 +256,7 @@ async function onChatStarted() {
                 const executeSlash = slashModule.executeSlashCommandsWithOptions || slashModule.executeSlashCommands;
                 if (executeSlash) {
                     await executeSlash(`/persona "${targetId}"`);
-                    toastr.success(`✅ 已切换至人设: ${targetName}`);
+                    toastr.success(`✅ 已强制精确切换至人设: ${targetName}`);
                     updateInjectedPanel();
                 }
             } catch (err) {
@@ -290,6 +290,6 @@ jQuery(async () => {
             }
         });
     } catch (error) {
-        console.error(`[${extensionName}] 错误:`, error);
+        console.error(`[${extensionName}] 致命错误:`, error);
     }
 });
