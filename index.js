@@ -84,7 +84,7 @@ function renderMappingUI() {
         const input = $(`<input type="text" class="text_pole" data-index="${index}" style="flex: 1; cursor: pointer;" placeholder="请在上方 User 面板一键绑定" value="${savedValue}" readonly title="请打开人设(User)面板进行一键绑定">`);
         
         input.on("click", function() {
-            toastr.info("为确保绑定精准，请打开页面User面板，使用里面的【一键绑定】功能。");
+            toastr.info("为确保绑定精准，请打开页面上方的人设 (User) 面板，使用里面的【一键绑定】功能。");
         });
 
         row.append(label);
@@ -233,6 +233,7 @@ async function initUI() {
     }
 }
 
+// 直接操控原生 DOM
 async function onChatStarted() {
     const context = getContext();
     if (!context.chat || context.chat.length === 0 || context.chat.length > 1) return; 
@@ -249,12 +250,21 @@ async function onChatStarted() {
         
         setTimeout(async () => {
             try {
-                const slashModule = await import('/scripts/slash-commands.js');
-                const executeSlash = slashModule.executeSlashCommandsWithOptions || slashModule.executeSlashCommands;
-                if (executeSlash) {
-                    await executeSlash(`/persona "${targetId}"`);
+                const personaSelect = $("#PersonaManagement select").first();
+                if (personaSelect.length > 0) {
+                    // 赋值并触发原生更改事件
+                    personaSelect.val(targetId).trigger('change');
                     toastr.success(`✅ 已精确切换至人设: ${targetName}`);
                     updateInjectedPanel();
+                } else {
+                    // 极少数情况下的兜底方案
+                    const slashModule = await import('/scripts/slash-commands.js');
+                    const executeSlash = slashModule.executeSlashCommandsWithOptions || slashModule.executeSlashCommands;
+                    if (executeSlash) {
+                        await executeSlash(`/persona "${targetId}"`);
+                        toastr.success(`✅ 已精确切换至人设: ${targetName}`);
+                        updateInjectedPanel();
+                    }
                 }
             } catch (err) {
                 console.error(`[${extensionName}] 命令执行失败:`, err);
