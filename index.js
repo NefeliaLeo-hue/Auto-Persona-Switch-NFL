@@ -256,7 +256,7 @@ async function onChatStarted() {
                 const executeSlash = slashModule.executeSlashCommandsWithOptions || slashModule.executeSlashCommands;
                 if (executeSlash) {
                     await executeSlash(`/persona "${targetId}"`);
-                    toastr.success(`✅ 已强制精确切换至人设: ${targetName}`);
+                    toastr.success(`✅ 已精确切换至人设: ${targetName}`);
                     updateInjectedPanel();
                 }
             } catch (err) {
