@@ -7,7 +7,7 @@ const settings = extension_settings[extName];
 
 const getName = (data) => typeof data === 'object' && data !== null ? (data.name || "") : (data || "");
 
-// 🎯 修复1：恢复名字过滤逻辑，精准识别带有 {{user}} 宏的开场白
+// 修复：恢复名字过滤逻辑，识别带有 {{user}} 宏的开场白
 const getGreetIdx = () => {
     const ctx = getContext();
     if (!ctx?.chat?.length || ctx.characterId === undefined) return -1;
@@ -130,7 +130,7 @@ const askToSwitchPersona = (targetName, currentName) => {
                 当前正在使用的人设为：<b>${currentName}</b>
             </div>
             <p style="color: var(--SmartThemeBodyColor); font-size: 0.8em; opacity: 0.7; text-align: left; margin-bottom: 20px;">
-                ⚠️ <b>防冲突提示</b>：如果该角色已经在酒馆自带设置中锁定了特定的主控（User），强烈建议点击“取消切换”，以酒馆原生配置为最高优先级，防止发生覆写冲突！
+                ⚠️ <b>防冲突提示</b>：如果该char本身已经与user绑定，且该user与绑定开场白的user是两个不同的设定，建议点击“取消切换”，将user与char本身解绑，防止发生覆写冲突导致聊天记录丢失！
             </p>
             <div style="display: flex; gap: 10px; justify-content: center;">
                 <button id="aps-btn-no" class="menu_button danger" style="margin:0; flex:1;">取消切换</button>
@@ -158,7 +158,7 @@ const askToSwitchPersona = (targetName, currentName) => {
                 updateUI();
             }
         } catch (err) {
-            console.error("切卡失败", err);
+            console.error("切换失败", err);
         }
     });
 };
@@ -186,7 +186,7 @@ jQuery(async () => {
         if ($("#extensions_settings").length && !$("#aps-extension-settings").length) {
             $("#extensions_settings").append(htmlFile);
             
-            // 🎯 修复2：加回防止按钮文本换行的 CSS
+            // 修复2：加回防止按钮文本换行的 CSS
             $("#aps-save-btn").css("white-space", "nowrap").on("click", () => { 
                 saveSettingsDebounced(); 
                 toastr.success("已保存！"); 
