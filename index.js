@@ -105,50 +105,72 @@ const injectBottom = () => {
     updateUI();
 };
 
-// 🌟 核心：隔离冲突与弹窗确认逻辑
+// 🌟 新增：安全防覆写弹窗！
+const askToSwitchPersona = (targetName, currentName) => {
+    if ($("#aps-confirm-modal").length > 0) return; // 避免重复弹窗
+
+    const modalHtml = `
+    <div id="aps-confirm-modal" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 99999; display: flex; justify-content: center; align-items: center;">
+        <div style="background: var(--SmartThemeBlurTintColor); border: 1px solid var(--SmartThemeQuoteColor); padding: 25px; border-radius: 12px; text-align: center; max-width: 85%; box-shadow: 0 10px 30px rgba(0,0,0,0.7); backdrop-filter: blur(5px);">
+            <h3 style="margin-top:0; color: var(--SmartThemeBodyColor); display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <i class="fa-solid fa-triangle-exclamation" style="color: #ff9800;"></i> 发现不同的人设配置
+            </h3>
+            <div style="color: var(--SmartThemeBodyColor); text-align: left; margin: 15px 0; font-size: 0.95em; line-height: 1.5;">
+                此开场白绑定的目标人设为：<b style="color: var(--SmartThemeQuoteColor);">${targetName}</b><br>
+                当前正在使用的人设为：<b>${currentName}</b>
+            </div>
+            <p style="color: var(--SmartThemeBodyColor); font-size: 0.8em; opacity: 0.7; text-align: left; margin-bottom: 20px;">
+                ⚠️ <b>防冲突提示</b>：如果该角色已经在酒馆自带设置中锁定了特定的主控（User），强烈建议点击“取消切换”，以酒馆原生配置为最高优先级，防止发生覆写冲突！
+            </p>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <button id="aps-btn-no" class="menu_button danger" style="margin:0; flex:1;">取消切换</button>
+                <button id="aps-btn-yes" class="menu_button" style="margin:0; flex:1;">强制切换</button>
+            </div>
+        </div>
+    </div>
+    `;
+    
+    $("body").append(modalHtml);
+
+    // 选项 1：听酒馆的话，不切了（绝对安全）
+    $("#aps-btn-no").on("click", () => {
+        $("#aps-confirm-modal").remove();
+        toastr.info("已放弃跳转，保留当前人设。");
+    });
+
+    // 选项 2：强制切换（用户手动触发，没有并发覆写风险）
+    $("#aps-btn-yes").on("click", async () => {
+        $("#aps-confirm-modal").remove();
+        try {
+            const slash = await import('/scripts/slash-commands.js');
+            const exec = slash.executeSlashCommandsWithOptions || slash.executeSlashCommands;
+            if (exec) {
+                await exec(`/persona "${targetName}"`);
+                toastr.success(`✅ 已切换至人设: ${targetName}`);
+                updateUI();
+            }
+        } catch (err) {
+            console.error("切卡失败", err);
+        }
+    });
+};
+
 const handleSwitch = async () => {
     updateUI();
     const ctx = getContext();
-    if (!ctx.chat || ctx.chat.length !== 1) return; // 仅在第一句话（切开场白时）触发
+    // 只有在仅有一条消息（开场白）时才触发判断，防止中途读档触发
+    if (!ctx.chat || ctx.chat.length !== 1) return; 
     
     const charId = ctx.characterId;
     const gIdx = getGreetIdx();
     
     if (charId !== undefined && gIdx !== -1 && settings[charId]) {
-        const targetName = getName(settings[charId][gIdx]);
-        if (!targetName || ctx.name1 === targetName) return;
-
-        // 获取酒馆原生的角色绑定数据
-        const charData = ctx.characters[charId]?.data;
-        const nativePersona = charData?.extensions?.persona || charData?.extensions?.chub?.persona;
-
-        const executeSwitch = () => {
-            toastr.info(`[自动切卡] 准备安全切换至: ${targetName}`);
-            // 延迟 1.5 秒，让系统底层先完成存档写入，确保绝对安全
-            setTimeout(async () => {
-                try {
-                    const slash = await import('/scripts/slash-commands.js');
-                    const exec = slash.executeSlashCommandsWithOptions || slash.executeSlashCommands;
-                    if (exec) {
-                        await exec(`/persona "${targetName}"`); // 仅通过官方安全指令切换
-                        toastr.success(`✅ 已切换至人设: ${targetName}`);
-                        updateUI();
-                    }
-                } catch (e) { console.error(e); }
-            }, 1500);
-        };
-
-        // 冲突判定：如果原生绑定了，且跟我们要切的不一样
-        if (nativePersona && nativePersona !== targetName) {
-            const userAgrees = confirm(`⚠️ 绑定冲突提示\n\n当前角色原生绑定了人设: [${nativePersona}]\n而该开场白绑定了人设: [${targetName}]\n\n是否允许插件强制跳转到 [${targetName}]？\n(取消则保持原样，互不干扰)`);
-            if (userAgrees) {
-                executeSwitch();
-            } else {
-                toastr.info("已取消跳转，保持原生人设。");
-            }
-        } else {
-            // 没有冲突，直接切
-            executeSwitch();
+        const target = getName(settings[charId][gIdx]);
+        
+        // 🚨 核心护盾启动：如果发现开场白设定的名字 和 酒馆当前载入的名字 不一样
+        if (target && ctx.name1 !== target) {
+            // 抛弃自动刷新覆写，改为温柔地弹窗询问用户！
+            askToSwitchPersona(target, ctx.name1);
         }
     }
 };
