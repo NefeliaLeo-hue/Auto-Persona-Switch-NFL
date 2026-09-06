@@ -7,12 +7,23 @@ const settings = extension_settings[extName];
 
 const getName = (data) => typeof data === 'object' && data !== null ? (data.name || "") : (data || "");
 
+// 🎯 修复1：恢复名字过滤逻辑，精准识别带有 {{user}} 宏的开场白
 const getGreetIdx = () => {
     const ctx = getContext();
     if (!ctx?.chat?.length || ctx.characterId === undefined) return -1;
     const char = ctx.characters[ctx.characterId];
     if (!char) return -1;
-    const norm = t => (t||'').replace(/\{\{.*?\}\}/g, '').replace(/<[^>]*>?/gm, '').replace(/[^\w\u4e00-\u9fa5]/g, '').substring(0, 15);
+    
+    const norm = (t) => {
+        if (!t) return "";
+        let text = t.replace(/\{\{.*?\}\}/g, ''); // 剔除所有宏标记
+        if (ctx.name1) text = text.replace(new RegExp(ctx.name1, 'gi'), ''); // 剔除渲染后的 User 真名
+        if (ctx.name2) text = text.replace(new RegExp(ctx.name2, 'gi'), ''); // 剔除渲染后的 Char 真名
+        text = text.replace(/<[^>]*>?/gm, ''); // 剔除 HTML 标签
+        text = text.replace(/[^\w\u4e00-\u9fa5]/g, ''); // 只保留文字和数字
+        return text.substring(0, 15);
+    };
+    
     const cur = norm(ctx.chat[0].mes);
     return [char.first_mes, ...(char.data?.alternate_greetings || [])].findIndex(g => norm(g) === cur);
 };
@@ -38,7 +49,7 @@ const updateUI = () => {
                 sideContainer.append(`
                     <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
                         <span style="flex:1; font-size:0.9em; color:var(--SmartThemeBodyColor);">开场白 ${i+1}: ${g.replace(/\n/g, "").substring(0,15)}...</span>
-                        <input type="text" class="text_pole" style="flex:1; cursor:not-allowed;" value="${val}" placeholder="请在 User 面板一键绑定" readonly>
+                        <input type="text" class="text_pole" style="flex:1; cursor:not-allowed;" value="${val}" placeholder="请在 User 面板一键绑定" readonly title="为确保同步，请打开人设(User)面板使用一键绑定功能。">
                     </div>
                 `);
             });
@@ -105,9 +116,8 @@ const injectBottom = () => {
     updateUI();
 };
 
-// 🌟 新增：安全防覆写弹窗！
 const askToSwitchPersona = (targetName, currentName) => {
-    if ($("#aps-confirm-modal").length > 0) return; // 避免重复弹窗
+    if ($("#aps-confirm-modal").length > 0) return; 
 
     const modalHtml = `
     <div id="aps-confirm-modal" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 99999; display: flex; justify-content: center; align-items: center;">
@@ -132,13 +142,11 @@ const askToSwitchPersona = (targetName, currentName) => {
     
     $("body").append(modalHtml);
 
-    // 选项 1：听酒馆的话，不切了（绝对安全）
     $("#aps-btn-no").on("click", () => {
         $("#aps-confirm-modal").remove();
         toastr.info("已放弃跳转，保留当前人设。");
     });
 
-    // 选项 2：强制切换（用户手动触发，没有并发覆写风险）
     $("#aps-btn-yes").on("click", async () => {
         $("#aps-confirm-modal").remove();
         try {
@@ -158,7 +166,6 @@ const askToSwitchPersona = (targetName, currentName) => {
 const handleSwitch = async () => {
     updateUI();
     const ctx = getContext();
-    // 只有在仅有一条消息（开场白）时才触发判断，防止中途读档触发
     if (!ctx.chat || ctx.chat.length !== 1) return; 
     
     const charId = ctx.characterId;
@@ -167,9 +174,7 @@ const handleSwitch = async () => {
     if (charId !== undefined && gIdx !== -1 && settings[charId]) {
         const target = getName(settings[charId][gIdx]);
         
-        // 🚨 核心护盾启动：如果发现开场白设定的名字 和 酒馆当前载入的名字 不一样
         if (target && ctx.name1 !== target) {
-            // 抛弃自动刷新覆写，改为温柔地弹窗询问用户！
             askToSwitchPersona(target, ctx.name1);
         }
     }
@@ -180,7 +185,13 @@ jQuery(async () => {
     const timer = setInterval(() => {
         if ($("#extensions_settings").length && !$("#aps-extension-settings").length) {
             $("#extensions_settings").append(htmlFile);
-            $("#aps-save-btn").on("click", () => { saveSettingsDebounced(); toastr.success("已保存！"); });
+            
+            // 🎯 修复2：加回防止按钮文本换行的 CSS
+            $("#aps-save-btn").css("white-space", "nowrap").on("click", () => { 
+                saveSettingsDebounced(); 
+                toastr.success("已保存！"); 
+            });
+            
             updateUI();
             clearInterval(timer);
         }
