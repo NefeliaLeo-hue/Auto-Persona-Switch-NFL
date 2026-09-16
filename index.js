@@ -57,41 +57,61 @@ const updateUI = () => {
     }
 
     if (botPanel.length) {
+        const gIdx = getGreetIdx();
+        
+        // --- 1. 原版功能：更新当前活跃开场白UI ---
+        if (charId === undefined || gIdx === -1) {
+            $("#aps-injected-info").html(`<span style="opacity:0.6;">请进入聊天查看当前开场白</span>`);
+            $("#aps-bind-btn, #aps-unbind-btn").hide();
+        } else {
+            const val = getName(settings[charId][gIdx]);
+            if (val) {
+                $("#aps-injected-info").html(`当前开场白: <b>${gIdx+1}</b><br>已绑定人设: <b style="color:var(--SmartThemeQuoteColor);">${val}</b>`);
+                $("#aps-bind-btn").html(`<i class="fa-solid fa-rotate"></i> 更新当前开场白绑定`).show();
+                $("#aps-unbind-btn").show();
+            } else {
+                $("#aps-injected-info").html(`当前开场白: <b>${gIdx+1}</b><br>状态: <b>未绑定</b>`);
+                $("#aps-bind-btn").html(`<i class="fa-solid fa-link"></i> 一键绑定当前开场白`).show();
+                $("#aps-unbind-btn").hide();
+            }
+        }
+
+        // --- 2. 新增功能：生成并更新扫描列表UI ---
         const listContainer = $("#aps-greetings-list");
         listContainer.empty();
         
         if (charId === undefined) {
-            listContainer.html(`<span style="opacity:0.6;">请进入聊天以扫描并绑定开场白</span>`);
+            listContainer.html(`<span style="opacity:0.6;">请进入聊天以扫描开场白</span>`);
         } else {
             const char = ctx.characters[charId];
             const greets = [char.first_mes, ...(char.data?.alternate_greetings || [])];
-            const curGIdx = getGreetIdx(); // 获取当前活跃的开场白下标（用于高亮）
             
             greets.forEach((g, i) => {
                 const val = getName(settings[charId][i]);
-                const isCur = (i === curGIdx);
+                const isCur = (i === gIdx);
                 
-                // 样式区分：当前开场白添加侧边条和微弱背景
                 const borderStyle = isCur ? "border-left: 3px solid var(--SmartThemeQuoteColor);" : "border-left: 3px solid transparent;";
                 const bgStyle = isCur ? "background: rgba(128,128,128,0.15);" : "background: rgba(0,0,0,0.1);";
-                const preview = g ? g.replace(/\n/g, " ").substring(0, 16) + "..." : "无开场白文本";
+                // 剔除 HTML 标签后再截取预览，防止图片代码破坏排版
+                const cleanText = g ? g.replace(/<[^>]*>?/gm, '').replace(/\n/g, " ") : "";
+                const preview = cleanText ? cleanText.substring(0, 16) + "..." : "无可用文本预览";
                 
                 let btnHtml = "";
                 if (val) {
                     btnHtml = `<button class="menu_button danger aps-btn-unbind" data-idx="${i}" style="margin:0; padding:4px 8px; font-size:0.8em; min-width:60px;">解绑</button>`;
                 } else {
-                    btnHtml = `<button class="menu_button aps-btn-bind" data-idx="${i}" style="margin:0; padding:4px 8px; font-size:0.8em; min-width:60px;">绑定当前</button>`;
+                    btnHtml = `<button class="menu_button aps-btn-bind" data-idx="${i}" style="margin:0; padding:4px 8px; font-size:0.8em; min-width:60px;">绑定</button>`;
                 }
 
                 listContainer.append(`
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; padding: 6px 8px; border-radius: 4px; ${borderStyle} ${bgStyle}">
                         <div style="flex:1; overflow:hidden; padding-right: 10px;">
-                            <div style="font-size:0.85em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${g}">
+                            <div style="font-size:0.85em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="预览: ${preview}">
                                 <b>#${i+1}</b> ${preview}
                             </div>
                             <div style="font-size:0.8em; margin-top:4px; opacity:0.8;">
                                 ${val ? `已绑: <b style="color:var(--SmartThemeQuoteColor);">${val}</b>` : '状态: 未绑定'}
-                                ${isCur ? ' <span style="color:var(--SmartThemeQuoteColor); font-size:0.9em;">(当前使用)</span>' : ''}
+                                ${isCur ? ' <span style="color:var(--SmartThemeQuoteColor); font-size:0.9em;">(当前)</span>' : ''}
                             </div>
                         </div>
                         <div style="flex-shrink:0;">${btnHtml}</div>
@@ -99,14 +119,14 @@ const updateUI = () => {
                 `);
             });
 
-            // 绑定事件（先 off 避免重复绑定）
+            // 列表按钮绑定事件
             $(".aps-btn-bind").off("click").on("click", function() {
                 const idx = $(this).data("idx");
                 if (ctx.name1) {
                     settings[charId][idx] = ctx.name1;
                     saveSettingsDebounced();
                     toastr.success(`✅ 已将开场白 #${idx+1} 绑定至当前人设: ${ctx.name1}`);
-                    updateUI(); // 刷新列表
+                    updateUI(); 
                 } else {
                     toastr.error("未能获取当前人设名称！");
                 }
@@ -117,7 +137,7 @@ const updateUI = () => {
                 delete settings[charId][idx];
                 saveSettingsDebounced();
                 toastr.info(`已解除开场白 #${idx+1} 的绑定`);
-                updateUI(); // 刷新列表
+                updateUI(); 
             });
         }
     }
@@ -131,15 +151,50 @@ const injectBottom = () => {
     const target = pm.find(".inline-drawer-toggle:contains('全局'), .inline-drawer-toggle:contains('Global')").closest(".inline-drawer");
     const html = `
     <div id="aps-injected-panel" style="margin: 15px 0; padding: 12px; border: 1px dashed var(--SmartThemeQuoteColor); border-radius: 8px; background: rgba(0,0,0,0.1);">
-        <div style="font-weight: bold; margin-bottom: 10px; color: var(--SmartThemeQuoteColor);">
+        <div style="font-weight: bold; margin-bottom: 8px; color: var(--SmartThemeQuoteColor);">
             <i class="fa-solid fa-masks-theater"></i> 开场白人设绑定 (联动)
         </div>
-        <div id="aps-greetings-list" style="display:flex; flex-direction:column; max-height:280px; overflow-y:auto; padding-right:5px;">
+        
+        <!-- 1. 原版：精确绑定当前聊天中的开场白 -->
+        <div id="aps-injected-info" style="font-size: 0.9em; margin-bottom: 10px;"></div>
+        <div style="display:flex; gap: 8px; margin-bottom: 12px;">
+            <button id="aps-bind-btn" class="menu_button" style="flex:1; margin:0;"></button>
+            <button id="aps-unbind-btn" class="menu_button danger" style="flex:1; margin:0;"><i class="fa-solid fa-unlink"></i> 解除</button>
+        </div>
+
+        <hr style="border-color: var(--SmartThemeQuoteColor); opacity: 0.2; margin: 12px 0;">
+
+        <!-- 2. 新增：扫描列表功能 -->
+        <div style="font-size: 0.85em; margin-bottom: 8px; opacity: 0.8;">
+            <i class="fa-solid fa-list-check"></i> 快速扫描列表 <span style="font-size: 0.85em; opacity: 0.7;">(若预览乱码请用上方功能)</span>
+        </div>
+        <div id="aps-greetings-list" style="display:flex; flex-direction:column; max-height:200px; overflow-y:auto; padding-right:5px;">
             <!-- 列表由 updateUI 动态填充 -->
         </div>
     </div>`;
 
     if (target.length) target.before(html); else pm.append(html);
+
+    // 绑定原版主按钮事件
+    $("#aps-bind-btn").on("click", () => {
+        const ctx = getContext();
+        if (ctx.characterId !== undefined && getGreetIdx() !== -1 && ctx.name1) {
+            settings[ctx.characterId][getGreetIdx()] = ctx.name1; 
+            saveSettingsDebounced();
+            toastr.success(`✅ 已绑定至人设: ${ctx.name1}`);
+            updateUI();
+        }
+    });
+
+    $("#aps-unbind-btn").on("click", () => {
+        const ctx = getContext();
+        if (ctx.characterId !== undefined && getGreetIdx() !== -1 && settings[ctx.characterId]) {
+            delete settings[ctx.characterId][getGreetIdx()];
+            saveSettingsDebounced();
+            toastr.info(`已解除当前开场白的绑定`);
+            updateUI();
+        }
+    });
 
     updateUI();
 };
