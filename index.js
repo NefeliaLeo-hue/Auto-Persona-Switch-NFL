@@ -17,6 +17,30 @@ const getGreetings = (char) => {
     return [char.first_mes, ...(char.data?.alternate_greetings || [])];
 };
 
+const getGreetingPreview = (greeting, length = 15) => {
+    if (!greeting) return "";
+
+    const temp = document.createElement("div");
+    temp.innerHTML = String(greeting);
+
+    // 不让 style / script 等内容进入预览文本
+    temp.querySelectorAll("style, script, noscript, template").forEach(el => el.remove());
+
+    return (temp.textContent || temp.innerText || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .substring(0, length);
+};
+
+const escapeHtml = (text) => {
+    return String(text ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+};
+
 /**
  * 简单稳定 hash。
  * 生成“配置键”
@@ -309,34 +333,73 @@ const updateUI = () => {
     const botPanel = $("#aps-injected-panel");
 
     if (sideContainer.length) {
-        sideContainer.empty();
+    sideContainer.empty();
 
-        if (charId === undefined) {
-            sideContainer.append("<p style='opacity:0.6;'>请选中角色卡。</p>");
+    if (charId === undefined) {
+        sideContainer.append("<p style='opacity:0.6;'>请选中角色卡。</p>");
+    } else {
+        const char = ctx.characters[charId];
+
+        if (!char) {
+            sideContainer.append("<p style='opacity:0.6;'>无法读取当前角色卡。</p>");
         } else {
-            const char = ctx.characters[charId];
+            ensureCharacterSettings(charId, char);
 
-            if (!char) {
-                sideContainer.append("<p style='opacity:0.6;'>无法读取当前角色卡。</p>");
-            } else {
-                // 确保当前角色已经完成 v2 数据迁移。
-                ensureCharacterSettings(charId, char);
+            const greets = getGreetings(char);
 
-                const greets = getGreetings(char);
+            greets.forEach((g, i) => {
+                const val = getGreetingPersona(charId, char, i);
 
-                greets.forEach((g, i) => {
-                    const val = getGreetingPersona(charId, char, i);
+                const previewText = getGreetingPreview(g, 15);
+                const preview = escapeHtml(
+                    previewText ? `${previewText}...` : "无可用文本预览"
+                );
 
-                    sideContainer.append(`
-                        <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
-                            <span style="flex:1; font-size:0.9em; color:var(--SmartThemeBodyColor);">开场白 ${i+1}: ${g.replace(/\n/g, "").substring(0,15)}...</span>
-                            <input type="text" class="text_pole" style="flex:1; cursor:not-allowed;" value="${val}" placeholder="请在 User 面板一键绑定" readonly title="为确保同步，请打开人设(User)面板使用一键绑定功能。">
-                        </div>
-                    `);
-                });
-            }
+                const safeVal = escapeHtml(val);
+
+                sideContainer.append(`
+                    <div style="
+                        display:flex;
+                        align-items:center;
+                        gap:10px;
+                        margin-bottom:10px;
+                        min-width:0;
+                        width:100%;
+                        box-sizing:border-box;
+                    ">
+                        <span style="
+                            flex:1 1 0;
+                            min-width:0;
+                            overflow:hidden;
+                            white-space:nowrap;
+                            text-overflow:ellipsis;
+                            font-size:0.9em;
+                            color:var(--SmartThemeBodyColor);
+                        ">
+                            开场白 ${i+1}: ${preview}
+                        </span>
+
+                        <input
+                            type="text"
+                            class="text_pole"
+                            style="
+                                flex:1 1 0;
+                                min-width:0;
+                                width:0;
+                                box-sizing:border-box;
+                                cursor:not-allowed;
+                            "
+                            value="${safeVal}"
+                            placeholder="请在 User 面板一键绑定"
+                            readonly
+                            title="为确保同步，请打开人设(User)面板使用一键绑定功能。"
+                        >
+                    </div>
+                `);
+            });
         }
     }
+}
 
     if (botPanel.length) {
         const gIdx = getGreetIdx();
